@@ -17,43 +17,70 @@ import { DeleteToast } from './components/common/DeleteToast';
 const AppContent = () => {
   const { user, loginAsGuest } = useAuth();
   const [activeTab, setActiveTab] = useState('tasks'); // 'tasks', 'schedule', 'calendar', 'projects'
+  const [currentView, setCurrentView] = useState('landing'); // 'landing' | 'dashboard'
   const [showTodoForm, setShowTodoForm] = useState(false);
   const [authModal, setAuthModal] = useState({ isOpen: false, mode: 'signin' });
   const [supabaseModalOpen, setSupabaseModalOpen] = useState(false);
   const [aboutModalOpen, setAboutModalOpen] = useState(false);
   const [contactModalOpen, setContactModalOpen] = useState(false);
+  const prevUserRef = React.useRef(user);
+
+  // When user logs in, automatically open their Workspace dashboard; when logging out, return to landing
+  React.useEffect(() => {
+    if (!prevUserRef.current && user) {
+      setCurrentView('dashboard');
+    } else if (prevUserRef.current && !user) {
+      setCurrentView('landing');
+    }
+    prevUserRef.current = user;
+  }, [user]);
 
   const handleOpenAuth = (mode = 'signin') => {
     if (mode === 'guest') {
       loginAsGuest();
       setActiveTab('tasks');
+      setCurrentView('dashboard');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     } else {
       setAuthModal({ isOpen: true, mode });
     }
   };
 
-  const handleOpenNewTodo = () => {
+  const handleNavigateToMain = () => {
+    setCurrentView('landing');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleNavigateToDashboard = () => {
+    setCurrentView('dashboard');
     setActiveTab('tasks');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleNavigateToProfile = () => {
+    setCurrentView('dashboard');
+    setActiveTab('profile');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleNavigateToProgress = () => {
+    setCurrentView('dashboard');
+    setActiveTab('progress');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleOpenNewTodo = () => {
+    setCurrentView('dashboard');
     setShowTodoForm(true);
-    setTimeout(() => {
-      const el = document.getElementById('todo-creation-form');
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        const input = el.querySelector('input[type="text"]');
-        if (input) input.focus();
-      }
-    }, 120);
   };
 
   const handleSelectView = (viewId) => {
-    if (user) {
-      setActiveTab(viewId);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    } else {
+    setActiveTab(viewId);
+    if (!user) {
       loginAsGuest();
-      setActiveTab(viewId);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
+    setCurrentView('dashboard');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   return (
@@ -65,13 +92,16 @@ const AppContent = () => {
         onOpenAbout={() => setAboutModalOpen(true)}
         onOpenContact={() => setContactModalOpen(true)}
         onOpenNewTodo={handleOpenNewTodo}
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
+        currentView={currentView}
+        onNavigateToMain={handleNavigateToMain}
+        onNavigateToDashboard={handleNavigateToDashboard}
+        onNavigateToProfile={handleNavigateToProfile}
+        onNavigateToProgress={handleNavigateToProgress}
       />
 
       {/* Main Content Area */}
       <main style={{ flex: 1 }}>
-        {user ? (
+        {user && currentView === 'dashboard' ? (
           /* Authenticated / Guest Explorer Dashboard View */
           <div>
             <DashboardView
@@ -83,23 +113,40 @@ const AppContent = () => {
             />
           </div>
         ) : (
-          /* Public Landing Page View */
+          /* Main Landing Page View (accessible both logged out and when logged in) */
           <div>
             <HeroSection
               onOpenAuth={handleOpenAuth}
               onOpenSupabase={() => setSupabaseModalOpen(true)}
-              onGetStarted={() => handleOpenAuth('signup')}
+              onGetStarted={() => {
+                if (user) {
+                  handleNavigateToDashboard();
+                } else {
+                  handleOpenAuth('signup');
+                }
+              }}
+              onGoToDashboard={handleNavigateToDashboard}
+              isLoggedIn={!!user}
             />
             <BenefitsSection
               onSelectView={handleSelectView}
               onOpenSupabase={() => setSupabaseModalOpen(true)}
             />
             <AboutSection
-              onGetStarted={() => handleOpenAuth('signup')}
+              onGetStarted={() => {
+                if (user) {
+                  handleNavigateToDashboard();
+                } else {
+                  handleOpenAuth('signup');
+                }
+              }}
+              onGoToDashboard={handleNavigateToDashboard}
+              isLoggedIn={!!user}
             />
           </div>
         )}
       </main>
+
 
       {/* Global Footer */}
       <Footer

@@ -9,7 +9,8 @@ import {
   ArrowUpDown,
   FolderKanban,
   Sparkles,
-  Plus
+  Plus,
+  GripVertical
 } from 'lucide-react';
 import { useTodos } from '../../context/TodoContext';
 import { TodoCard } from './TodoCard';
@@ -26,13 +27,20 @@ export const TodoList = ({ onOpenCreateTodo }) => {
     searchQuery,
     setSearchQuery,
     selectedCalendarDate,
-    setSelectedCalendarDate
+    setSelectedCalendarDate,
+    reorderTodos
   } = useTodos();
 
-  const [sortBy, setSortBy] = useState('date'); // 'date', 'priority', 'title', 'newest'
+  const [sortBy, setSortBy] = useState('manual'); // 'manual', 'priority', 'date', 'newest', 'title'
+  const [draggedIndex, setDraggedIndex] = useState(null);
+  const [dragOverIndex, setDragOverIndex] = useState(null);
 
   // Apply sorting
   const sortedTodos = [...filteredTodos].sort((a, b) => {
+    if (sortBy === 'manual') {
+      // Manual/custom arrangement preserves the array's current order
+      return 0;
+    }
     if (sortBy === 'date') {
       if (!a.due_date) return 1;
       if (!b.due_date) return -1;
@@ -50,6 +58,78 @@ export const TodoList = ({ onOpenCreateTodo }) => {
     }
     return 0;
   });
+
+  // Drag and drop prioritization handlers
+  const handleDragStart = (e, index) => {
+    setDraggedIndex(index);
+    e.dataTransfer.effectAllowed = 'move';
+    try {
+      e.dataTransfer.setData('text/plain', index.toString());
+    } catch (err) {}
+  };
+
+  const handleDragOver = (e, index) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (dragOverIndex !== index) {
+      setDragOverIndex(index);
+    }
+  };
+
+  const handleDragEnd = () => {
+    setDraggedIndex(null);
+    setDragOverIndex(null);
+  };
+
+  const handleDrop = (e, targetIndex) => {
+    e.preventDefault();
+    if (draggedIndex === null || draggedIndex === targetIndex) {
+      setDraggedIndex(null);
+      setDragOverIndex(null);
+      return;
+    }
+
+    // Identify the moved item from the displayed list
+    const sourceTodo = sortedTodos[draggedIndex];
+    if (!sourceTodo) {
+      setDraggedIndex(null);
+      setDragOverIndex(null);
+      return;
+    }
+
+    // Reconstruct global todos array to preserve items outside current filter
+    const newGlobalTodos = [...todos];
+    const sourceGlobalIdx = newGlobalTodos.findIndex(t => t.id === sourceTodo.id);
+    const targetTodo = sortedTodos[targetIndex];
+    const targetGlobalIdx = newGlobalTodos.findIndex(t => t.id === targetTodo.id);
+
+    if (sourceGlobalIdx !== -1 && targetGlobalIdx !== -1) {
+      const [movedItem] = newGlobalTodos.splice(sourceGlobalIdx, 1);
+      newGlobalTodos.splice(targetGlobalIdx, 0, movedItem);
+      reorderTodos(newGlobalTodos);
+    }
+
+    // Ensure we are in manual order mode so user sees their new arrangement
+    if (sortBy !== 'manual') {
+      setSortBy('manual');
+    }
+
+    setDraggedIndex(null);
+    setDragOverIndex(null);
+  };
+
+  // Keyboard / Touch Up and Down movement
+  const handleMoveUp = (index) => {
+    if (index <= 0) return;
+    const targetIndex = index - 1;
+    handleDrop({ preventDefault: () => {} }, targetIndex);
+  };
+
+  const handleMoveDown = (index) => {
+    if (index >= sortedTodos.length - 1) return;
+    const targetIndex = index + 1;
+    handleDrop({ preventDefault: () => {} }, targetIndex);
+  };
 
   const filterTabs = [
     { id: 'all', label: 'All Tasks', count: todos.length },
@@ -111,7 +191,7 @@ export const TodoList = ({ onOpenCreateTodo }) => {
             </select>
           </div>
 
-          {/* Sort By */}
+          {/* Sort By Dropdown including Drag to Arrange */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <ArrowUpDown size={15} color="var(--text-muted)" />
             <select
@@ -120,8 +200,9 @@ export const TodoList = ({ onOpenCreateTodo }) => {
               onChange={(e) => setSortBy(e.target.value)}
               style={{ width: 'auto', padding: '8px 12px', fontSize: '0.85rem' }}
             >
+              <option value="manual">🎯 Drag to Arrange (Custom Priority)</option>
+              <option value="priority">Sort by Priority (High to Low)</option>
               <option value="date">Sort by Due Date</option>
-              <option value="priority">Sort by Priority</option>
               <option value="newest">Sort by Recently Created</option>
               <option value="title">Sort by Title (A-Z)</option>
             </select>
@@ -156,7 +237,7 @@ export const TodoList = ({ onOpenCreateTodo }) => {
         </div>
       )}
 
-      {/* Tabs */}
+      {/* Filter Tabs */}
       <div style={{
         display: 'flex',
         alignItems: 'center',
@@ -205,16 +286,36 @@ export const TodoList = ({ onOpenCreateTodo }) => {
         })}
       </div>
 
-      {/* Todos Count Indicator */}
+      {/* Todos Count Indicator & Drag hint */}
       <div style={{
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
+        flexWrap: 'wrap',
+        gap: '8px',
         fontSize: '0.8rem',
         color: 'var(--text-dim)',
         marginBottom: '12px'
       }}>
-        <span>Showing {sortedTodos.length} of {todos.length} total tasks</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span>Showing {sortedTodos.length} of {todos.length} total tasks</span>
+          {sortBy === 'manual' && sortedTodos.length > 1 && (
+            <span style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              color: 'var(--accent-primary)',
+              background: 'var(--accent-subtle)',
+              padding: '2px 8px',
+              borderRadius: 'var(--radius-full)',
+              fontSize: '0.725rem',
+              fontWeight: 600
+            }}>
+              <GripVertical size={12} /> Drag cards to rearrange priority
+            </span>
+          )}
+        </div>
+
         {sortedTodos.length > 0 && (
           <span>{todos.filter(t => t.completed).length} completed</span>
         )}
@@ -269,8 +370,22 @@ export const TodoList = ({ onOpenCreateTodo }) => {
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          {sortedTodos.map((todo) => (
-            <TodoCard key={todo.id} todo={todo} />
+          {sortedTodos.map((todo, index) => (
+            <TodoCard
+              key={todo.id}
+              todo={todo}
+              index={index}
+              isDragging={draggedIndex === index}
+              isDragOver={dragOverIndex === index}
+              onDragStart={handleDragStart}
+              onDragOver={handleDragOver}
+              onDragEnd={handleDragEnd}
+              onDrop={handleDrop}
+              canMoveUp={index > 0}
+              canMoveDown={index < sortedTodos.length - 1}
+              onMoveUp={() => handleMoveUp(index)}
+              onMoveDown={() => handleMoveDown(index)}
+            />
           ))}
         </div>
       )}

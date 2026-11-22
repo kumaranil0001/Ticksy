@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { TicksyLogo } from '../common/TicksyLogo';
 
-export const AboutSection = ({ onGetStarted }) => {
+export const AboutSection = ({ onGetStarted, onGoToDashboard, isLoggedIn = false }) => {
   const principles = [
     {
       icon: Zap,
@@ -129,11 +129,11 @@ export const AboutSection = ({ onGetStarted }) => {
 
               <div style={{ marginTop: '12px' }}>
                 <button
-                  onClick={onGetStarted}
+                  onClick={isLoggedIn && onGoToDashboard ? onGoToDashboard : onGetStarted}
                   className="btn btn-primary btn-md"
                   style={{ gap: '8px' }}
                 >
-                  <span>Experience Ticksy Free</span>
+                  <span>{isLoggedIn ? 'Go to Workspace' : 'Experience Ticksy Free'}</span>
                   <ArrowRight size={16} />
                 </button>
               </div>

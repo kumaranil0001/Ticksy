@@ -312,25 +312,22 @@ export const CalendarView = () => {
             </div>
 
             <button
-              onClick={() => setShowAddForm(!showAddForm)}
+              onClick={() => setShowAddForm(true)}
               className="btn btn-primary btn-sm"
               style={{ gap: '6px' }}
             >
               <Plus size={15} />
-              <span>{showAddForm ? 'Hide Form' : 'Add Task'}</span>
+              <span>Add Task</span>
             </button>
           </div>
 
-          {/* Quick Add Form for this specific date */}
-          {showAddForm && (
-            <div style={{ marginBottom: '20px' }}>
-              <TodoForm
-                defaultDate={activeDate}
-                isCollapsible={false}
-                onSaved={() => setShowAddForm(false)}
-              />
-            </div>
-          )}
+          {/* Quick Add Modal for this specific date */}
+          <TodoForm
+            isOpen={showAddForm}
+            defaultDate={activeDate}
+            onClose={() => setShowAddForm(false)}
+            onSaved={() => setShowAddForm(false)}
+          />
 
           {/* List of Tasks for Selected Date */}
           {activeDateTodos.length === 0 ? (

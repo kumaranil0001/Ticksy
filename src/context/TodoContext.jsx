@@ -47,8 +47,31 @@ export const TodoProvider = ({ children }) => {
           console.warn('Supabase todos fetch error:', todoError);
           setTodos([]);
         } else {
-          // Real users start at exactly what is in their Supabase database (0 for new users)
-          setTodos(userTodos || []);
+          // Check for saved custom priority order
+          const rawTodos = userTodos || [];
+          try {
+            const savedOrderStr = localStorage.getItem(`ticksy_order_${user.id}`);
+            if (savedOrderStr) {
+              const savedOrderIds = JSON.parse(savedOrderStr);
+              const todoMap = new Map(rawTodos.map(t => [t.id, t]));
+              const orderedList = [];
+              for (const id of savedOrderIds) {
+                if (todoMap.has(id)) {
+                  orderedList.push(todoMap.get(id));
+                  todoMap.delete(id);
+                }
+              }
+              // Append any new or remaining todos not in saved order
+              for (const leftover of todoMap.values()) {
+                orderedList.push(leftover);
+              }
+              setTodos(orderedList);
+            } else {
+              setTodos(rawTodos);
+            }
+          } catch (e) {
+            setTodos(rawTodos);
+          }
         }
         setSyncStatus('synced');
       } catch (err) {
@@ -405,6 +428,21 @@ export const TodoProvider = ({ children }) => {
     completionPercentage: todos.length ? Math.round((todos.filter(t => t.completed).length / todos.length) * 100) : 0
   };
 
+  // Reorder todos (Drag & Drop prioritization)
+  const reorderTodos = (newOrderedTodos) => {
+    setTodos(newOrderedTodos);
+    if (isGuest) {
+      localStorage.setItem('donestack_guest_todos', JSON.stringify(newOrderedTodos));
+    } else if (user?.id) {
+      try {
+        const orderIds = newOrderedTodos.map(t => t.id);
+        localStorage.setItem(`ticksy_order_${user.id}`, JSON.stringify(orderIds));
+      } catch (e) {
+        console.warn('Failed to save todo ordering', e);
+      }
+    }
+  };
+
   return (
     <TodoContext.Provider
       value={{
@@ -429,6 +467,7 @@ export const TodoProvider = ({ children }) => {
         deleteToast,
         dismissDeleteToast,
         toggleTodo,
+        reorderTodos,
         addProject,
         deleteProject,
         refreshData: loadData,

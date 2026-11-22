@@ -164,6 +164,67 @@ export const AuthProvider = ({ children }) => {
     localStorage.setItem('donestack_guest_user', JSON.stringify(guestUser));
   };
 
+  const updateProfile = async ({ fullName }) => {
+    setAuthError(null);
+    const trimmed = (fullName || '').trim();
+    if (!trimmed) {
+      const err = new Error('Username / Full name cannot be empty');
+      setAuthError(err.message);
+      return { data: null, error: err };
+    }
+
+    if (isGuest || !configured) {
+      const updatedUser = {
+        ...user,
+        user_metadata: {
+          ...(user?.user_metadata || {}),
+          full_name: trimmed
+        }
+      };
+      setUser(updatedUser);
+      localStorage.setItem('donestack_guest_user', JSON.stringify(updatedUser));
+      return { data: { user: updatedUser }, error: null };
+    }
+
+    try {
+      const { data, error } = await supabase.auth.updateUser({
+        data: { full_name: trimmed }
+      });
+      if (error) throw error;
+      if (data?.user) {
+        setUser(data.user);
+      }
+      return { data, error: null };
+    } catch (err) {
+      setAuthError(err.message);
+      return { data: null, error: err };
+    }
+  };
+
+  const updatePassword = async ({ newPassword }) => {
+    setAuthError(null);
+    if (!newPassword || newPassword.length < 6) {
+      const err = new Error('Password must be at least 6 characters long');
+      setAuthError(err.message);
+      return { data: null, error: err };
+    }
+
+    if (isGuest || !configured) {
+      return { data: { message: 'Password updated successfully for local session' }, error: null };
+    }
+
+    try {
+      const { data, error } = await supabase.auth.updateUser({
+        password: newPassword
+      });
+      if (error) throw error;
+      return { data, error: null };
+    } catch (err) {
+      setAuthError(err.message);
+      return { data: null, error: err };
+    }
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -177,6 +238,8 @@ export const AuthProvider = ({ children }) => {
         signIn,
         signOut,
         loginAsGuest,
+        updateProfile,
+        updatePassword,
         clearError: () => setAuthError(null)
       }}
     >

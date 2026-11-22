@@ -7,12 +7,28 @@ import {
   Edit2,
   FolderKanban,
   Save,
-  X
+  X,
+  GripVertical,
+  ChevronUp,
+  ChevronDown
 } from 'lucide-react';
 import { useTodos } from '../../context/TodoContext';
 import { PRIORITY_CONFIG } from '../../constants/mockData';
 
-export const TodoCard = ({ todo }) => {
+export const TodoCard = ({
+  todo,
+  index,
+  isDragging = false,
+  isDragOver = false,
+  onDragStart,
+  onDragOver,
+  onDragEnd,
+  onDrop,
+  onMoveUp,
+  onMoveDown,
+  canMoveUp = false,
+  canMoveDown = false
+}) => {
   const { toggleTodo, deleteTodo, updateTodo, projects } = useTodos();
   const [isEditing, setIsEditing] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -50,6 +66,14 @@ export const TodoCard = ({ todo }) => {
     }, 200);
   };
 
+  // Quick priority cycle
+  const handleCyclePriority = () => {
+    const sequence = ['urgent', 'high', 'medium', 'low'];
+    const currentIdx = sequence.indexOf(todo.priority || 'medium');
+    const nextPriority = sequence[(currentIdx + 1) % sequence.length];
+    updateTodo(todo.id, { priority: nextPriority });
+  };
+
   const formatDisplayDate = (dateStr) => {
     if (!dateStr) return 'No Date';
     if (dateStr === todayStr) return 'Today';
@@ -68,7 +92,12 @@ export const TodoCard = ({ todo }) => {
 
   return (
     <div
-      className="glass-panel"
+      className={`glass-panel todo-draggable-card ${isDragging ? 'todo-card-dragging' : ''} ${isDragOver ? 'todo-card-drag-over' : ''}`}
+      draggable={!isEditing}
+      onDragStart={onDragStart ? (e) => onDragStart(e, index) : undefined}
+      onDragOver={onDragOver ? (e) => onDragOver(e, index) : undefined}
+      onDragEnd={onDragEnd}
+      onDrop={onDrop ? (e) => onDrop(e, index) : undefined}
       style={{
         padding: '16px 20px',
         borderRadius: 'var(--radius-md)',
@@ -78,15 +107,28 @@ export const TodoCard = ({ todo }) => {
           ? 'rgba(239, 68, 68, 0.03)'
           : 'var(--bg-card)',
         border: `1px solid ${
-          todo.completed
+          isDragOver
+            ? '#6366f1'
+            : isDragging
+            ? 'var(--accent-primary)'
+            : todo.completed
             ? 'var(--border-subtle)'
             : isOverdue
             ? 'rgba(239, 68, 68, 0.25)'
             : 'var(--border-card)'
         }`,
         transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
-        opacity: isDeleting ? 0 : todo.completed ? 0.65 : 1,
-        transform: isDeleting ? 'translateX(20px) scale(0.98)' : 'none',
+        opacity: isDeleting ? 0 : isDragging ? 0.35 : todo.completed ? 0.65 : 1,
+        transform: isDeleting
+          ? 'translateX(20px) scale(0.98)'
+          : isDragging
+          ? 'scale(0.98)'
+          : isDragOver
+          ? 'translateY(-2px)'
+          : 'none',
+        boxShadow: isDragOver
+          ? '0 0 0 2px rgba(99, 102, 241, 0.3), 0 8px 16px rgba(0, 0, 0, 0.12)'
+          : undefined,
         position: 'relative',
         overflow: 'hidden'
       }}
@@ -180,9 +222,29 @@ export const TodoCard = ({ todo }) => {
       ) : (
         /* Regular View Mode */
         <div>
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px' }}>
-            {/* Checkbox and Title */}
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', flex: 1 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '10px' }}>
+            {/* Left section: Drag handle + Checkbox + Title */}
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', flex: 1 }}>
+              {/* Drag Grip Handle */}
+              <div
+                className="todo-drag-handle"
+                title="Drag to rearrange priority"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'var(--text-dim)',
+                  cursor: 'grab',
+                  padding: '2px',
+                  borderRadius: '4px',
+                  marginTop: '2px',
+                  flexShrink: 0
+                }}
+              >
+                <GripVertical size={16} />
+              </div>
+
+              {/* Checkbox button */}
               <button
                 type="button"
                 onClick={() => toggleTodo(todo.id)}
@@ -206,7 +268,7 @@ export const TodoCard = ({ todo }) => {
                 {todo.completed && <Check size={14} strokeWidth={3} />}
               </button>
 
-              <div style={{ flex: 1 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
                 <h4 style={{
                   fontSize: '0.95rem',
                   fontWeight: 600,
@@ -235,8 +297,33 @@ export const TodoCard = ({ todo }) => {
               </div>
             </div>
 
-            {/* Quick Actions (Edit / Delete) */}
+            {/* Right section: Move Up/Down buttons + Edit + Delete */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+              {/* Move Up */}
+              {onMoveUp && canMoveUp && (
+                <button
+                  onClick={onMoveUp}
+                  className="btn-ghost todo-reorder-btn"
+                  title="Move priority up"
+                  style={{ padding: '4px', borderRadius: '4px', color: 'var(--text-dim)' }}
+                >
+                  <ChevronUp size={14} />
+                </button>
+              )}
+
+              {/* Move Down */}
+              {onMoveDown && canMoveDown && (
+                <button
+                  onClick={onMoveDown}
+                  className="btn-ghost todo-reorder-btn"
+                  title="Move priority down"
+                  style={{ padding: '4px', borderRadius: '4px', color: 'var(--text-dim)' }}
+                >
+                  <ChevronDown size={14} />
+                </button>
+              )}
+
+              {/* Edit */}
               <button
                 onClick={() => setIsEditing(true)}
                 className="btn-ghost"
@@ -246,6 +333,7 @@ export const TodoCard = ({ todo }) => {
                 <Edit2 size={14} />
               </button>
 
+              {/* Delete */}
               <button
                 onClick={handleDelete}
                 className="btn-ghost"
@@ -266,7 +354,7 @@ export const TodoCard = ({ todo }) => {
             alignItems: 'center',
             gap: '8px',
             marginTop: '10px',
-            paddingLeft: '32px',
+            paddingLeft: '48px',
             fontSize: '0.75rem'
           }}>
             {/* Due Date Badge */}
@@ -313,18 +401,24 @@ export const TodoCard = ({ todo }) => {
               </div>
             )}
 
-            {/* Priority Badge */}
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-              padding: '2px 8px',
-              borderRadius: 'var(--radius-full)',
-              background: 'var(--bg-tertiary)',
-              color: 'var(--text-muted)',
-              border: '1px solid var(--border-card)',
-              fontWeight: 500
-            }}>
+            {/* Priority Badge with Quick Cycle Click */}
+            <div
+              onClick={handleCyclePriority}
+              title="Click to cycle priority level (Urgent → High → Medium → Low)"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '2px 8px',
+                borderRadius: 'var(--radius-full)',
+                background: priorityConfig.bg,
+                color: priorityConfig.color,
+                border: `1px solid ${priorityConfig.border}`,
+                fontWeight: 600,
+                cursor: 'pointer',
+                userSelect: 'none'
+              }}
+            >
               <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: priorityConfig.color }} />
               <span>{priorityConfig.label}</span>
             </div>

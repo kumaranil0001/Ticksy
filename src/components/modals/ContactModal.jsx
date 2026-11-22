@@ -2,14 +2,14 @@ import React, { useState } from 'react';
 import { X, Mail, Send, CheckCircle2, MessageSquare, User, Sparkles } from 'lucide-react';
 
 export const ContactModal = ({ isOpen, onClose }) => {
-  if (!isOpen) return null;
-
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [topic, setTopic] = useState('Feedback & Suggestions');
   const [message, setMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+
+  if (!isOpen) return null;
 
   const handleSubmit = (e) => {
     e.preventDefault();

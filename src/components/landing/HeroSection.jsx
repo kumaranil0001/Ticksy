@@ -14,8 +14,12 @@ import { MOTIVATIONAL_QUOTES } from '../../constants/mockData';
 import { useAuth } from '../../context/AuthContext';
 import { useTodos } from '../../context/TodoContext';
 
-export const HeroSection = ({ onGetStarted }) => {
-  const { loginAsGuest } = useAuth();
+export const HeroSection = ({
+  onGetStarted,
+  onGoToDashboard,
+  isLoggedIn = false
+}) => {
+  const { user, loginAsGuest } = useAuth();
   const { triggerConfetti } = useTodos();
   const [currentQuoteIndex, setCurrentQuoteIndex] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
@@ -237,23 +241,57 @@ export const HeroSection = ({ onGetStarted }) => {
             justifyContent: 'center',
             gap: '12px'
           }}>
-            <button
-              onClick={onGetStarted}
-              className="btn btn-primary btn-lg"
-              style={{ gap: '8px', padding: '12px 24px', fontSize: '0.98rem' }}
-            >
-              <span>Launch Ticksy Free</span>
-              <ArrowRight size={17} />
-            </button>
+            {user || isLoggedIn ? (
+              <>
+                <button
+                  onClick={onGoToDashboard}
+                  className="btn btn-primary btn-lg"
+                  style={{
+                    gap: '8px',
+                    padding: '12px 28px',
+                    fontSize: '1rem',
+                    background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 52%, #06b6d4 100%)',
+                    borderColor: 'transparent',
+                    boxShadow: '0 4px 16px rgba(99, 102, 241, 0.4)'
+                  }}
+                >
+                  <span>Go to Workspace</span>
+                  <ArrowRight size={17} />
+                </button>
 
-            <button
-              onClick={() => { loginAsGuest(); onGetStarted(); }}
-              className="btn btn-secondary btn-lg"
-              style={{ gap: '8px', padding: '12px 22px', fontSize: '0.98rem' }}
-            >
-              <Sparkles size={16} />
-              <span>Explore Instant Demo</span>
-            </button>
+                <button
+                  onClick={() => {
+                    const el = document.getElementById('benefits');
+                    if (el) el.scrollIntoView({ behavior: 'smooth' });
+                  }}
+                  className="btn btn-secondary btn-lg"
+                  style={{ gap: '8px', padding: '12px 22px', fontSize: '0.98rem' }}
+                >
+                  <Sparkles size={16} />
+                  <span>Explore Features</span>
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={onGetStarted}
+                  className="btn btn-primary btn-lg"
+                  style={{ gap: '8px', padding: '12px 24px', fontSize: '0.98rem' }}
+                >
+                  <span>Launch Ticksy Free</span>
+                  <ArrowRight size={17} />
+                </button>
+
+                <button
+                  onClick={() => { loginAsGuest(); onGetStarted(); }}
+                  className="btn btn-secondary btn-lg"
+                  style={{ gap: '8px', padding: '12px 22px', fontSize: '0.98rem' }}
+                >
+                  <Sparkles size={16} />
+                  <span>Explore Instant Demo</span>
+                </button>
+              </>
+            )}
           </div>
 
           {/* Redesigned Sleek Feature & Trust Chips */}
