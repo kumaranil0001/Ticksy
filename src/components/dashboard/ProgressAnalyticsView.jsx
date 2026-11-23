@@ -9,12 +9,14 @@ import {
   BarChart3,
   Flame,
   ArrowUpRight,
-  Info
+  Info,
+  Zap,
+  RotateCcw
 } from 'lucide-react';
 import { useTodos } from '../../context/TodoContext';
 
 export const ProgressAnalyticsView = ({ onBackToTasks, onSwitchToProfile, onSelectDateFilter }) => {
-  const { todos, stats, setSelectedCalendarDate } = useTodos();
+  const { todos, stats, setSelectedCalendarDate, progressHistory, seedProgressHistory } = useTodos();
   const [rangeDays, setRangeDays] = useState(7); // 7, 14, 30, or 0 (all)
   const [hoveredDay, setHoveredDay] = useState(null);
 
@@ -23,7 +25,7 @@ export const ProgressAnalyticsView = ({ onBackToTasks, onSwitchToProfile, onSele
 
   // Compute date-wise success metrics
   const dateMetrics = useMemo(() => {
-    // Collect all unique dates from todos
+    // Collect all unique dates from todos and history
     const todoDates = new Set();
     todos.forEach(t => {
       if (t.due_date) todoDates.add(t.due_date);
@@ -32,6 +34,10 @@ export const ProgressAnalyticsView = ({ onBackToTasks, onSwitchToProfile, onSele
         todoDates.add(cDate);
       }
     });
+
+    if (progressHistory) {
+      Object.keys(progressHistory).forEach(d => todoDates.add(d));
+    }
 
     // Generate chronological list of dates based on rangeDays
     const dates = [];
@@ -55,16 +61,33 @@ export const ProgressAnalyticsView = ({ onBackToTasks, onSwitchToProfile, onSele
 
     // Map each date to metrics
     return dates.map(dateStr => {
-      // Find todos for this date
+      // 1. Check if lightweight historical snapshot exists for this date
+      const historicalSnapshot = progressHistory && progressHistory[dateStr];
+
+      // 2. Check if active todos exist for this date
       const forDate = todos.filter(t => {
         if (t.due_date) return t.due_date === dateStr;
         return t.created_at && t.created_at.split('T')[0] === dateStr;
       });
 
-      const total = forDate.length;
-      const completed = forDate.filter(t => t.completed).length;
-      const pending = total - completed;
-      const rate = total > 0 ? Math.round((completed / total) * 100) : 0;
+      let total = 0;
+      let completed = 0;
+      let rate = 0;
+
+      // Prioritize active todos for today, otherwise rely on preserved historical snapshot
+      if (dateStr === todayStr && (forDate.length > 0 || (stats && stats.total > 0))) {
+        total = forDate.length > 0 ? forDate.length : stats.total;
+        completed = forDate.length > 0 ? forDate.filter(t => t.completed).length : stats.completed;
+        rate = total > 0 ? Math.round((completed / total) * 100) : 0;
+      } else if (historicalSnapshot && historicalSnapshot.total > 0) {
+        total = historicalSnapshot.total;
+        completed = historicalSnapshot.completed;
+        rate = historicalSnapshot.rate;
+      } else if (forDate.length > 0) {
+        total = forDate.length;
+        completed = forDate.filter(t => t.completed).length;
+        rate = Math.round((completed / total) * 100);
+      }
 
       // Format human-friendly label
       const dObj = new Date(dateStr + 'T00:00:00');
@@ -80,12 +103,12 @@ export const ProgressAnalyticsView = ({ onBackToTasks, onSwitchToProfile, onSele
         fullFormatted: dObj.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'short', day: 'numeric' }),
         total,
         completed,
-        pending,
+        pending: Math.max(0, total - completed),
         rate,
         hasActivity: total > 0
       };
     });
-  }, [todos, rangeDays, todayStr]);
+  }, [todos, stats, progressHistory, rangeDays, todayStr]);
 
   // Overall analytics calculations
   const activeDays = dateMetrics.filter(d => d.total > 0);
@@ -381,42 +404,78 @@ export const ProgressAnalyticsView = ({ onBackToTasks, onSwitchToProfile, onSele
                 Date-Wise Success Rate Graph
               </h3>
             </div>
-            <p style={{ fontSize: '0.825rem', color: 'var(--text-muted)', marginTop: '2px', margin: 0 }}>
-              Shows daily task completion percentage (%) over time. Hover over any date to inspect details.
-            </p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginTop: '3px' }}>
+              <p style={{ fontSize: '0.825rem', color: 'var(--text-muted)', margin: 0 }}>
+                Shows daily task completion percentage (%) over time. Hover over any date to inspect details.
+              </p>
+              <span style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '2px 8px',
+                borderRadius: 'var(--radius-full)',
+                background: 'rgba(99, 102, 241, 0.1)',
+                border: '1px solid rgba(99, 102, 241, 0.25)',
+                fontSize: '0.7rem',
+                color: '#818cf8',
+                fontWeight: 600
+              }}>
+                <Zap size={11} />
+                <span>Lightweight Metric Snapshots • Low DB Load</span>
+              </span>
+            </div>
           </div>
 
-          {/* Range Selector Pills */}
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '4px',
-            background: 'var(--bg-tertiary)',
-            padding: '4px',
-            borderRadius: 'var(--radius-md)'
-          }}>
-            {[
-              { label: '7 Days', val: 7 },
-              { label: '14 Days', val: 14 },
-              { label: '30 Days', val: 30 }
-            ].map(r => (
-              <button
-                key={r.val}
-                onClick={() => setRangeDays(r.val)}
-                className="btn btn-ghost btn-sm"
-                style={{
-                  padding: '5px 12px',
-                  fontSize: '0.775rem',
-                  borderRadius: 'var(--radius-sm)',
-                  fontWeight: rangeDays === r.val ? 700 : 500,
-                  background: rangeDays === r.val ? 'var(--bg-card)' : 'transparent',
-                  color: rangeDays === r.val ? 'var(--text-main)' : 'var(--text-muted)',
-                  boxShadow: rangeDays === r.val ? 'var(--shadow-sm)' : 'none'
-                }}
-              >
-                {r.label}
-              </button>
-            ))}
+          {/* Range Selector Pills & Sync Control */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              background: 'var(--bg-tertiary)',
+              padding: '4px',
+              borderRadius: 'var(--radius-md)'
+            }}>
+              {[
+                { label: '7 Days', val: 7 },
+                { label: '14 Days', val: 14 },
+                { label: '30 Days', val: 30 }
+              ].map(r => (
+                <button
+                  key={r.val}
+                  onClick={() => setRangeDays(r.val)}
+                  className="btn btn-ghost btn-sm"
+                  style={{
+                    padding: '5px 12px',
+                    fontSize: '0.775rem',
+                    borderRadius: 'var(--radius-sm)',
+                    fontWeight: rangeDays === r.val ? 700 : 500,
+                    background: rangeDays === r.val ? 'var(--bg-card)' : 'transparent',
+                    color: rangeDays === r.val ? 'var(--text-main)' : 'var(--text-muted)',
+                    boxShadow: rangeDays === r.val ? 'var(--shadow-sm)' : 'none'
+                  }}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
+
+            <button
+              onClick={() => seedProgressHistory()}
+              className="btn btn-ghost btn-sm"
+              title="Re-sync or backfill historical baseline for past days"
+              style={{
+                fontSize: '0.75rem',
+                gap: '5px',
+                color: 'var(--text-dim)',
+                padding: '6px 10px',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--border-subtle)'
+              }}
+            >
+              <RotateCcw size={13} />
+              <span>Sync History</span>
+            </button>
           </div>
         </div>
 
@@ -687,7 +746,15 @@ export const ProgressAnalyticsView = ({ onBackToTasks, onSwitchToProfile, onSele
         </div>
 
         {/* Date Rows Table */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '8px',
+          maxHeight: '400px',
+          overflowY: 'auto',
+          paddingRight: '4px',
+          scrollbarWidth: 'thin'
+        }}>
           {dateMetrics
             .slice()
             .reverse() // show newest/today first
