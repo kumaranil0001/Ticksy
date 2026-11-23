@@ -34,7 +34,7 @@ export const MOTIVATIONAL_QUOTES = [
 ];
 
 export const DEFAULT_USER_PROJECT = {
-  id: 'proj-general',
+  id: '00000000-0000-4000-8000-000000000001',
   name: 'General Tasks',
   description: 'Default project for everyday tasks, habits, and priorities',
   color: '#6366f1', // Indigo

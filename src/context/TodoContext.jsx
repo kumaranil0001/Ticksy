@@ -18,14 +18,46 @@ export const TodoProvider = ({ children }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [syncStatus, setSyncStatus] = useState('synced'); // 'synced', 'syncing', 'offline'
 
-  // Load Initial Data (from Supabase or Local Storage)
+  const userId = user?.id;
+
+  const isUuid = (str) => {
+    return typeof str === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+  };
+
+  // Load Initial Data (Offline-First / Cache-First from Local Storage & Supabase)
   const loadData = useCallback(async () => {
     setLoading(true);
 
     if (user && !isGuest && isSupabaseConfigured()) {
       try {
         setSyncStatus('syncing');
-        // Fetch Projects from Supabase
+
+        // 1. Immediately load cached data from localStorage to prevent any empty flash
+        let cachedProjectsList = [];
+        try {
+          const cachedProjStr = localStorage.getItem(`ticksy_projects_${user.id}`);
+          if (cachedProjStr) {
+            const parsed = JSON.parse(cachedProjStr);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              cachedProjectsList = parsed;
+              setProjects(parsed);
+            }
+          }
+        } catch (e) {}
+
+        let cachedTodosList = [];
+        try {
+          const cachedTodoStr = localStorage.getItem(`ticksy_todos_${user.id}`);
+          if (cachedTodoStr) {
+            const parsed = JSON.parse(cachedTodoStr);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              cachedTodosList = parsed;
+              setTodos(parsed);
+            }
+          }
+        } catch (e) {}
+
+        // 2. Fetch Projects from Supabase
         const { data: userProjects, error: projError } = await supabase
           .from('projects')
           .select('*')
@@ -33,34 +65,37 @@ export const TodoProvider = ({ children }) => {
 
         let loadedProjects = userProjects || [];
 
-        // Check local storage for any projects previously created or cached
-        try {
-          const cachedProjects = localStorage.getItem(`ticksy_projects_${user.id}`);
-          if (cachedProjects) {
-            const parsed = JSON.parse(cachedProjects);
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              const map = new Map(loadedProjects.map(p => [p.id, p]));
-              parsed.forEach(p => {
-                if (!map.has(p.id)) map.set(p.id, p);
-              });
-              loadedProjects = Array.from(map.values());
-            }
-          }
-        } catch (e) {}
+        // Merge Supabase projects with cached projects
+        if (cachedProjectsList.length > 0) {
+          const pMap = new Map(loadedProjects.map(p => [p.id, p]));
+          cachedProjectsList.forEach(cp => {
+            if (!pMap.has(cp.id)) pMap.set(cp.id, cp);
+          });
+          loadedProjects = Array.from(pMap.values());
+        }
 
-        // If new or existing user has 0 projects, provide the default General project
+        // If new or existing user has 0 projects, provide the default General project and persist it to Supabase
         if (loadedProjects.length === 0) {
-          loadedProjects = [DEFAULT_USER_PROJECT];
-          if (isSupabaseConfigured()) {
-            supabase.from('projects').insert([{
-              name: DEFAULT_USER_PROJECT.name,
-              description: DEFAULT_USER_PROJECT.description,
-              color: DEFAULT_USER_PROJECT.color,
-              icon: DEFAULT_USER_PROJECT.icon,
-              user_id: user.id
-            }]).then(({ data }) => {
-              if (data) setProjects([data]);
-            }).catch(() => {});
+          try {
+            const { data: newProjData, error: createProjErr } = await supabase
+              .from('projects')
+              .insert([{
+                name: DEFAULT_USER_PROJECT.name,
+                description: DEFAULT_USER_PROJECT.description,
+                color: DEFAULT_USER_PROJECT.color,
+                icon: DEFAULT_USER_PROJECT.icon,
+                user_id: user.id
+              }])
+              .select()
+              .single();
+
+            if (newProjData) {
+              loadedProjects = [newProjData];
+            } else {
+              loadedProjects = [DEFAULT_USER_PROJECT];
+            }
+          } catch (e) {
+            loadedProjects = [DEFAULT_USER_PROJECT];
           }
         }
 
@@ -69,43 +104,78 @@ export const TodoProvider = ({ children }) => {
           localStorage.setItem(`ticksy_projects_${user.id}`, JSON.stringify(loadedProjects));
         } catch (e) {}
 
-        // Fetch Todos from Supabase
+        // 3. Fetch Todos from Supabase
         const { data: userTodos, error: todoError } = await supabase
           .from('todos')
           .select('*')
           .order('created_at', { ascending: false });
 
+        let finalTodos = [];
+
         if (todoError) {
           console.warn('Supabase todos fetch error:', todoError);
-          setTodos([]);
+          // CRITICAL: NEVER wipe local data on fetch error! Use cached todos
+          finalTodos = cachedTodosList;
+          setSyncStatus('offline');
         } else {
-          // Check for saved custom priority order
           const rawTodos = userTodos || [];
-          try {
-            const savedOrderStr = localStorage.getItem(`ticksy_order_${user.id}`);
-            if (savedOrderStr) {
-              const savedOrderIds = JSON.parse(savedOrderStr);
-              const todoMap = new Map(rawTodos.map(t => [t.id, t]));
-              const orderedList = [];
-              for (const id of savedOrderIds) {
-                if (todoMap.has(id)) {
-                  orderedList.push(todoMap.get(id));
-                  todoMap.delete(id);
-                }
-              }
-              // Append any new or remaining todos not in saved order
-              for (const leftover of todoMap.values()) {
-                orderedList.push(leftover);
-              }
-              setTodos(orderedList);
-            } else {
-              setTodos(rawTodos);
-            }
-          } catch (e) {
-            setTodos(rawTodos);
+
+          if (rawTodos.length === 0 && cachedTodosList.length > 0) {
+            // Local cache has tasks, but Supabase returned 0 (e.g. initial sync or network recovery)
+            // Keep user tasks and sync them up to Supabase in the background!
+            finalTodos = cachedTodosList;
+            cachedTodosList.forEach(async (ct) => {
+              try {
+                const dbPayload = {
+                  title: ct.title,
+                  description: ct.description || '',
+                  priority: ct.priority || 'medium',
+                  due_date: ct.due_date,
+                  due_time: ct.due_time || '12:00',
+                  project_id: isUuid(ct.project_id) ? ct.project_id : null,
+                  tags: ct.tags || [],
+                  completed: !!ct.completed,
+                  user_id: user.id
+                };
+                await supabase.from('todos').insert([dbPayload]);
+              } catch (err) {}
+            });
+          } else {
+            // Merge Supabase tasks with any unsaved local tasks
+            const todoMap = new Map();
+            rawTodos.forEach(t => todoMap.set(t.id, t));
+            cachedTodosList.forEach(t => {
+              if (!todoMap.has(t.id)) todoMap.set(t.id, t);
+            });
+            finalTodos = Array.from(todoMap.values());
           }
+          setSyncStatus('synced');
         }
-        setSyncStatus('synced');
+
+        // Apply saved custom priority order if present
+        try {
+          const savedOrderStr = localStorage.getItem(`ticksy_order_${user.id}`);
+          if (savedOrderStr) {
+            const savedOrderIds = JSON.parse(savedOrderStr);
+            const todoMap = new Map(finalTodos.map(t => [t.id, t]));
+            const orderedList = [];
+            for (const id of savedOrderIds) {
+              if (todoMap.has(id)) {
+                orderedList.push(todoMap.get(id));
+                todoMap.delete(id);
+              }
+            }
+            for (const leftover of todoMap.values()) {
+              orderedList.push(leftover);
+            }
+            finalTodos = orderedList;
+          }
+        } catch (e) {}
+
+        setTodos(finalTodos);
+        try {
+          localStorage.setItem(`ticksy_todos_${user.id}`, JSON.stringify(finalTodos));
+        } catch (e) {}
       } catch (err) {
         console.error('Error fetching Supabase data:', err);
         setSyncStatus('offline');
@@ -140,29 +210,34 @@ export const TodoProvider = ({ children }) => {
       setSyncStatus('synced');
       setLoading(false);
     } else {
-      // Unauthenticated / fresh state starts clean at 0
+      // Unauthenticated state
       setTodos([]);
       setProjects([]);
       setSyncStatus('synced');
       setLoading(false);
     }
-  }, [user, isGuest]);
+  }, [userId, isGuest]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
 
-  // Persist to local storage ONLY if in guest demo mode
+  // Persist to local storage for BOTH authenticated users and guest users
   useEffect(() => {
-    if (isGuest) {
-      if (todos.length > 0) {
-        localStorage.setItem('donestack_guest_todos', JSON.stringify(todos));
-      }
-      if (projects.length > 0) {
-        localStorage.setItem('donestack_guest_projects', JSON.stringify(projects));
-      }
+    const todosKey = user?.id ? `ticksy_todos_${user.id}` : (isGuest ? 'donestack_guest_todos' : null);
+    const projectsKey = user?.id ? `ticksy_projects_${user.id}` : (isGuest ? 'donestack_guest_projects' : null);
+
+    if (todosKey && todos) {
+      try {
+        localStorage.setItem(todosKey, JSON.stringify(todos));
+      } catch (e) {}
     }
-  }, [todos, projects, isGuest]);
+    if (projectsKey && projects) {
+      try {
+        localStorage.setItem(projectsKey, JSON.stringify(projects));
+      } catch (e) {}
+    }
+  }, [todos, projects, user?.id, isGuest]);
 
   // Lightweight Daily Progress History Engine (Stores only actual, real daily metrics)
   const historyStorageKey = user?.id ? `ticksy_progress_history_${user.id}` : 'ticksy_progress_history_guest';
@@ -257,14 +332,13 @@ export const TodoProvider = ({ children }) => {
     if (autoArchiveMode === 'manual') return;
 
     const now = new Date();
-    const todayStr = getLocalDateString(now);
 
     setTodos(currentTodos => {
-      // Find tasks whose timeline has finished
+      // Find tasks whose timeline has finished (strictly completed tasks whose due date has passed)
       const tasksToArchive = currentTodos.filter(t => isTaskTimelineFinished(t, autoArchiveMode, now));
       if (tasksToArchive.length === 0) return currentTodos;
 
-      // Add tasks to archived list so user can still see them under 'Archived' if needed
+      // Add tasks to archived list so user can still see them under 'Archived' view
       setArchivedTodos(prev => {
         const updatedArchived = [...tasksToArchive, ...prev];
         try {
@@ -276,19 +350,17 @@ export const TodoProvider = ({ children }) => {
       // Remove finished tasks from active todos list
       const remainingTodos = currentTodos.filter(t => !isTaskTimelineFinished(t, autoArchiveMode, now));
 
-      // Also sync deletion to Supabase for archived tasks
-      if (user && !isGuest && isSupabaseConfigured()) {
-        const archiveIds = tasksToArchive.map(t => t.id);
-        supabase.from('todos').delete().in('id', archiveIds).then(() => {
-          setSyncStatus('synced');
-        }).catch(err => {
-          console.warn('Failed to delete archived tasks from Supabase:', err);
-        });
+      // Update local storage for active todos immediately
+      const todosKey = user?.id ? `ticksy_todos_${user.id}` : (isGuest ? 'donestack_guest_todos' : null);
+      if (todosKey) {
+        try {
+          localStorage.setItem(todosKey, JSON.stringify(remainingTodos));
+        } catch (e) {}
       }
 
       return remainingTodos;
     });
-  }, [autoArchiveMode, user, isGuest]);
+  }, [autoArchiveMode, user?.id, isGuest]);
 
   // Run cleanup on mount, when mode changes, and on interval every 30 seconds
   useEffect(() => {
@@ -365,21 +437,34 @@ export const TodoProvider = ({ children }) => {
 
   // Add new Todo
   const addTodo = async (newTodoData) => {
+    const tempId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'todo-' + Date.now();
+    const targetProj = projects.find(p => p.id === newTodoData.project_id) || projects[0];
+    const targetProjId = newTodoData.project_id || (targetProj?.id ?? null);
+    // Project ID in Supabase must strictly be a valid UUID; null is safely allowed
+    const validDbProjectId = isUuid(targetProjId) ? targetProjId : null;
+
     const todoPayload = {
-      id: 'todo-' + Date.now(),
+      id: tempId,
       title: newTodoData.title.trim(),
       description: newTodoData.description?.trim() || '',
       priority: newTodoData.priority || 'medium',
       due_date: newTodoData.due_date || getLocalDateString(),
       due_time: newTodoData.due_time || '12:00',
-      project_id: newTodoData.project_id || (projects[0]?.id ?? null),
+      project_id: targetProjId,
       tags: newTodoData.tags || [],
       completed: false,
       created_at: new Date().toISOString()
     };
 
-    // Optimistic UI update
-    setTodos(prev => [todoPayload, ...prev]);
+    // Optimistic UI update & immediate local persistence
+    setTodos(prev => {
+      const updated = [todoPayload, ...prev];
+      const storageKey = user?.id ? `ticksy_todos_${user.id}` : (isGuest ? 'donestack_guest_todos' : null);
+      if (storageKey) {
+        try { localStorage.setItem(storageKey, JSON.stringify(updated)); } catch (e) {}
+      }
+      return updated;
+    });
 
     if (user && !isGuest && isSupabaseConfigured()) {
       try {
@@ -390,7 +475,7 @@ export const TodoProvider = ({ children }) => {
           priority: todoPayload.priority,
           due_date: todoPayload.due_date,
           due_time: todoPayload.due_time,
-          project_id: todoPayload.project_id || null,
+          project_id: validDbProjectId,
           tags: todoPayload.tags,
           completed: false,
           user_id: user.id
@@ -406,7 +491,14 @@ export const TodoProvider = ({ children }) => {
           console.error('Supabase insert todo error:', error);
           setSyncStatus('offline');
         } else if (data) {
-          setTodos(prev => prev.map(t => t.id === todoPayload.id ? data : t));
+          setTodos(prev => {
+            const updated = prev.map(t => t.id === todoPayload.id ? data : t);
+            const storageKey = user?.id ? `ticksy_todos_${user.id}` : (isGuest ? 'donestack_guest_todos' : null);
+            if (storageKey) {
+              try { localStorage.setItem(storageKey, JSON.stringify(updated)); } catch (e) {}
+            }
+            return updated;
+          });
           setSyncStatus('synced');
         }
       } catch (err) {
@@ -508,7 +600,7 @@ export const TodoProvider = ({ children }) => {
     // 3. Immediately re-calculate and save progress history without the deleted task
     syncProgressHistory(remainingTodos, remainingArchived);
 
-    if (user && !isGuest && isSupabaseConfigured()) {
+    if (user && !isGuest && isSupabaseConfigured() && isUuid(id)) {
       try {
         setSyncStatus('syncing');
         const { error } = await supabase.from('todos').delete().eq('id', id);
@@ -593,6 +685,8 @@ export const TodoProvider = ({ children }) => {
             } catch (e) {}
             return updated;
           });
+          // Also link any pending todos to the real Supabase project ID
+          setTodos(prev => prev.map(t => t.project_id === newProj.id ? { ...t, project_id: data.id } : t));
           setSyncStatus('synced');
         }
       } catch (err) {
@@ -613,7 +707,7 @@ export const TodoProvider = ({ children }) => {
     });
     setTodos(prev => prev.map(t => t.project_id === projectId ? { ...t, project_id: null } : t));
 
-    if (user && !isGuest && isSupabaseConfigured()) {
+    if (user && !isGuest && isSupabaseConfigured() && isUuid(projectId)) {
       try {
         setSyncStatus('syncing');
         const { error } = await supabase.from('projects').delete().eq('id', projectId);

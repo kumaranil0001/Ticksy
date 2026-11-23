@@ -58,27 +58,28 @@ export const getTaskDate = (todo) => {
 export const isTaskTimelineFinished = (todo, mode = 'midnight', now = new Date()) => {
   if (mode === 'manual' || !todo) return false;
 
+  // CRITICAL: Incomplete tasks are NEVER automatically removed!
+  // Overdue incomplete tasks must remain visible in the workspace until finished or explicitly deleted!
+  if (!todo.completed) return false;
+
   const todayStr = getLocalDateString(now);
   const currentTimeStr = getLocalTimeString(now);
 
   // If task has no due date, it's a backlog item that stays
   if (!todo.due_date) return false;
 
-  // 1. If due date is before today, timeline has finished for both midnight & time_passed
+  // 1. If completed task has due date before today, it is archived when midnight starts
   if (todo.due_date < todayStr) {
     return true;
   }
 
   // 2. If mode is 'time_passed' and due date is today:
   if (mode === 'time_passed' && todo.due_date === todayStr) {
-    // If completed and due_time has passed (or if completed for over 15 minutes)
-    if (todo.completed) {
-      if (todo.due_time && todo.due_time <= currentTimeStr) {
-        return true;
-      }
-      // If completed without due_time or completed earlier
+    if (todo.due_time && todo.due_time <= currentTimeStr) {
       return true;
     }
+    // Completed task today whose time has finished
+    return true;
   }
 
   return false;

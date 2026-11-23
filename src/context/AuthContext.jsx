@@ -50,9 +50,16 @@ export const AuthProvider = ({ children }) => {
     getInitialSession();
 
     // Listen for Supabase auth state changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, newSession) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
       setSession(newSession);
-      setUser(newSession?.user ?? null);
+      setUser(prevUser => {
+        // Prevent TOKEN_REFRESHED from creating a new object reference when user hasn't changed.
+        // This avoids cyclic re-renders and data refetches every 3-5 minutes.
+        if (event === 'TOKEN_REFRESHED' && prevUser && newSession?.user && prevUser.id === newSession.user.id) {
+          return prevUser;
+        }
+        return newSession?.user ?? null;
+      });
       if (newSession?.user) {
         setIsGuest(false);
         localStorage.removeItem('donestack_guest_user');
