@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { useTodos } from '../../context/TodoContext';
 import { PRIORITY_CONFIG } from '../../constants/mockData';
+import { getLocalDateString, getOffsetDateString } from '../../lib/dateUtils';
 
 export const TodoCard = ({
   todo,
@@ -41,8 +42,8 @@ export const TodoCard = ({
   const project = projects.find(p => p.id === todo.project_id);
   const priorityConfig = PRIORITY_CONFIG[todo.priority] || PRIORITY_CONFIG.medium;
 
-  // Due date status calculation
-  const todayStr = new Date().toISOString().split('T')[0];
+  // Due date status calculation (evaluated in local timezone)
+  const todayStr = getLocalDateString();
   const isOverdue = todo.due_date && todo.due_date < todayStr && !todo.completed;
   const isToday = todo.due_date === todayStr;
 
@@ -77,9 +78,10 @@ export const TodoCard = ({
   const formatDisplayDate = (dateStr) => {
     if (!dateStr) return 'No Date';
     if (dateStr === todayStr) return 'Today';
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    if (dateStr === tomorrow.toISOString().split('T')[0]) return 'Tomorrow';
+    const tomorrowStr = getOffsetDateString(1);
+    if (dateStr === tomorrowStr) return 'Tomorrow';
+    const yesterdayStr = getOffsetDateString(-1);
+    if (dateStr === yesterdayStr) return 'Yesterday';
 
     try {
       const [year, month, day] = dateStr.split('-');

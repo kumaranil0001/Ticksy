@@ -10,6 +10,7 @@ import {
   Inbox
 } from 'lucide-react';
 import { useTodos } from '../../context/TodoContext';
+import { getLocalDateString } from '../../lib/dateUtils';
 import { TodoCard } from './TodoCard';
 import { TodoForm } from './TodoForm';
 
@@ -82,11 +83,11 @@ export const CalendarView = () => {
   const jumpToToday = () => {
     const today = new Date();
     setCurrentDate(today);
-    setSelectedCalendarDate(today.toISOString().split('T')[0]);
+    setSelectedCalendarDate(getLocalDateString(today));
   };
 
-  // Determine active date: defaults to selectedCalendarDate or today's ISO string
-  const todayStr = new Date().toISOString().split('T')[0];
+  // Determine active date: defaults to selectedCalendarDate or today's local date string
+  const todayStr = getLocalDateString();
   const activeDate = selectedCalendarDate || todayStr;
   const activeDateTodos = todos.filter(t => t.due_date === activeDate);
 

@@ -13,6 +13,7 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { useTodos } from '../../context/TodoContext';
+import { getLocalDateString } from '../../lib/dateUtils';
 
 export const TodoForm = ({
   isOpen = false,
@@ -34,7 +35,7 @@ export const TodoForm = ({
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState('medium');
-  const [dueDate, setDueDate] = useState(() => defaultDate || selectedCalendarDate || new Date().toISOString().split('T')[0]);
+  const [dueDate, setDueDate] = useState(() => defaultDate || selectedCalendarDate || getLocalDateString());
   const [dueTime, setDueTime] = useState('12:00');
   const [projectId, setProjectId] = useState(() => defaultProjectId || (projects[0]?.id ?? ''));
   const [tagInput, setTagInput] = useState('');

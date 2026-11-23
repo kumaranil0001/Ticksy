@@ -13,14 +13,18 @@ import {
   Sparkles,
   TrendingUp,
   Mail,
-  Calendar
+  Calendar,
+  Clock,
+  Archive,
+  Check
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useTodos } from '../../context/TodoContext';
 
 export const ProfileView = ({ onBackToTasks, onSwitchToProgress }) => {
   const { user, isGuest, updateProfile, updatePassword } = useAuth();
-  const { stats } = useTodos();
+  const { stats, autoArchiveMode, setAutoArchiveMode, clearFinishedTasksNow } = useTodos();
+  const [cleanupNotice, setCleanupNotice] = useState('');
 
   // Username form state
   const [fullName, setFullName] = useState(user?.user_metadata?.full_name || '');
@@ -554,6 +558,185 @@ export const ProfileView = ({ onBackToTasks, onSwitchToProgress }) => {
               <span>{passwordSaving ? 'Updating Password...' : 'Update Password'}</span>
             </button>
           </form>
+        </div>
+      </div>
+
+      {/* Card 3: Task Lifecycle & Auto-Cleanup Preferences */}
+      <div className="glass-panel" style={{
+        marginTop: '24px',
+        padding: '24px',
+        borderRadius: 'var(--radius-lg)',
+        border: '1px solid var(--border-card)'
+      }}>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '12px',
+          marginBottom: '20px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div style={{
+              width: '36px',
+              height: '36px',
+              borderRadius: '8px',
+              background: 'rgba(99, 102, 241, 0.15)',
+              color: '#818cf8',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}>
+              <Clock size={18} />
+            </div>
+            <div>
+              <h4 style={{ fontSize: '1.05rem', fontWeight: 700, margin: 0 }}>
+                Task Lifecycle & Auto-Cleanup Rules
+              </h4>
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>
+                Decide when finished tasks automatically remove from your workspace while permanently keeping stats for your Progress Graph
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              clearFinishedTasksNow();
+              setCleanupNotice('Finished tasks successfully archived! Daily progress locked into graph.');
+              setTimeout(() => setCleanupNotice(''), 4000);
+            }}
+            className="btn btn-secondary btn-sm"
+            style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+          >
+            <Sparkles size={14} color="#818cf8" />
+            <span>Clean Finished Now</span>
+          </button>
+        </div>
+
+        {cleanupNotice && (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '10px 14px',
+            borderRadius: 'var(--radius-md)',
+            background: 'rgba(16, 185, 129, 0.12)',
+            border: '1px solid rgba(16, 185, 129, 0.3)',
+            color: '#10b981',
+            fontSize: '0.85rem',
+            marginBottom: '16px'
+          }}>
+            <CheckCircle2 size={16} />
+            <span>{cleanupNotice}</span>
+          </div>
+        )}
+
+        {/* 3 Auto Cleanup Strategy Options */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+          gap: '16px'
+        }}>
+          {/* Option 1: At 12:00 AM Midnight */}
+          <div
+            onClick={() => setAutoArchiveMode('midnight')}
+            style={{
+              padding: '18px',
+              borderRadius: 'var(--radius-md)',
+              border: `2px solid ${autoArchiveMode === 'midnight' ? 'var(--accent-primary)' : 'var(--border-card)'}`,
+              background: autoArchiveMode === 'midnight' ? 'rgba(99, 102, 241, 0.08)' : 'var(--bg-tertiary)',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+              position: 'relative'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Clock size={16} color="#818cf8" />
+                <span style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-main)' }}>
+                  At 12:00 AM (Midnight)
+                </span>
+              </div>
+              <span style={{
+                fontSize: '0.7rem',
+                padding: '2px 8px',
+                borderRadius: 'var(--radius-full)',
+                background: 'rgba(16, 185, 129, 0.15)',
+                color: '#10b981',
+                fontWeight: 600
+              }}>
+                Recommended
+              </span>
+            </div>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '0 0 12px 0', lineHeight: 1.45 }}>
+              Tasks automatically clear when a new day starts at 12:00 AM midnight. Gives you a clean workspace every morning while preserving history in your Success Graph.
+            </p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', color: autoArchiveMode === 'midnight' ? '#818cf8' : 'var(--text-dim)', fontWeight: 600 }}>
+              {autoArchiveMode === 'midnight' ? <Check size={14} /> : null}
+              <span>{autoArchiveMode === 'midnight' ? 'Active Strategy' : 'Click to select'}</span>
+            </div>
+          </div>
+
+          {/* Option 2: When Timeline Finishes */}
+          <div
+            onClick={() => setAutoArchiveMode('time_passed')}
+            style={{
+              padding: '18px',
+              borderRadius: 'var(--radius-md)',
+              border: `2px solid ${autoArchiveMode === 'time_passed' ? 'var(--accent-primary)' : 'var(--border-card)'}`,
+              background: autoArchiveMode === 'time_passed' ? 'rgba(99, 102, 241, 0.08)' : 'var(--bg-tertiary)',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+              position: 'relative'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Sparkles size={16} color="#06b6d4" />
+                <span style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-main)' }}>
+                  When Timeline Finishes
+                </span>
+              </div>
+            </div>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '0 0 12px 0', lineHeight: 1.45 }}>
+              Tasks automatically clear as soon as their scheduled due time passes and they are marked completed, keeping your focus strictly on what is active right now.
+            </p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', color: autoArchiveMode === 'time_passed' ? '#818cf8' : 'var(--text-dim)', fontWeight: 600 }}>
+              {autoArchiveMode === 'time_passed' ? <Check size={14} /> : null}
+              <span>{autoArchiveMode === 'time_passed' ? 'Active Strategy' : 'Click to select'}</span>
+            </div>
+          </div>
+
+          {/* Option 3: Manual Only */}
+          <div
+            onClick={() => setAutoArchiveMode('manual')}
+            style={{
+              padding: '18px',
+              borderRadius: 'var(--radius-md)',
+              border: `2px solid ${autoArchiveMode === 'manual' ? 'var(--accent-primary)' : 'var(--border-card)'}`,
+              background: autoArchiveMode === 'manual' ? 'rgba(99, 102, 241, 0.08)' : 'var(--bg-tertiary)',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+              position: 'relative'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Archive size={16} color="#94a3b8" />
+                <span style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-main)' }}>
+                  Manual Removal Only
+                </span>
+              </div>
+            </div>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '0 0 12px 0', lineHeight: 1.45 }}>
+              Tasks remain on your screen until you manually delete or archive them. Auto-cleanup is disabled.
+            </p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', color: autoArchiveMode === 'manual' ? '#818cf8' : 'var(--text-dim)', fontWeight: 600 }}>
+              {autoArchiveMode === 'manual' ? <Check size={14} /> : null}
+              <span>{autoArchiveMode === 'manual' ? 'Active Strategy' : 'Click to select'}</span>
+            </div>
+          </div>
         </div>
       </div>
     </div>

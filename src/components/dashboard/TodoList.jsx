@@ -10,9 +10,14 @@ import {
   FolderKanban,
   Sparkles,
   Plus,
-  GripVertical
+  GripVertical,
+  Archive,
+  RotateCcw,
+  Trash2,
+  Calendar
 } from 'lucide-react';
 import { useTodos } from '../../context/TodoContext';
+import { getLocalDateString } from '../../lib/dateUtils';
 import { TodoCard } from './TodoCard';
 
 export const TodoList = ({ onOpenCreateTodo }) => {
@@ -28,7 +33,13 @@ export const TodoList = ({ onOpenCreateTodo }) => {
     setSearchQuery,
     selectedCalendarDate,
     setSelectedCalendarDate,
-    reorderTodos
+    reorderTodos,
+    autoArchiveMode,
+    setAutoArchiveMode,
+    archivedTodos,
+    clearFinishedTasksNow,
+    restoreArchivedTodo,
+    deleteArchivedTodo
   } = useTodos();
 
   const [sortBy, setSortBy] = useState('manual'); // 'manual', 'priority', 'date', 'newest', 'title'
@@ -131,13 +142,16 @@ export const TodoList = ({ onOpenCreateTodo }) => {
     handleDrop({ preventDefault: () => {} }, targetIndex);
   };
 
+  const todayStr = getLocalDateString();
+
   const filterTabs = [
     { id: 'all', label: 'All Tasks', count: todos.length },
     { id: 'active', label: 'Active', count: todos.filter(t => !t.completed).length },
-    { id: 'today', label: 'Today', count: todos.filter(t => t.due_date === new Date().toISOString().split('T')[0] && !t.completed).length },
-    { id: 'upcoming', label: 'Upcoming', count: todos.filter(t => t.due_date > new Date().toISOString().split('T')[0] && !t.completed).length },
+    { id: 'today', label: 'Today', count: todos.filter(t => t.due_date === todayStr && !t.completed).length },
+    { id: 'upcoming', label: 'Upcoming', count: todos.filter(t => t.due_date > todayStr && !t.completed).length },
     { id: 'urgent', label: 'Urgent', count: todos.filter(t => (t.priority === 'urgent' || t.priority === 'high') && !t.completed).length },
-    { id: 'completed', label: 'Completed', count: todos.filter(t => t.completed).length }
+    { id: 'completed', label: 'Completed', count: todos.filter(t => t.completed).length },
+    { id: 'archived', label: 'Archived', count: archivedTodos.length }
   ];
 
   return (
@@ -152,7 +166,7 @@ export const TodoList = ({ onOpenCreateTodo }) => {
         marginBottom: '20px'
       }}>
         {/* Search Input */}
-        <div style={{ position: 'relative', flex: '1', minWidth: '240px', maxWidth: '420px' }}>
+        <div style={{ position: 'relative', flex: '1', minWidth: '240px', maxWidth: '380px' }}>
           <Search size={16} color="var(--text-dim)" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)' }} />
           <input
             type="text"
@@ -173,7 +187,7 @@ export const TodoList = ({ onOpenCreateTodo }) => {
           )}
         </div>
 
-        {/* Project & Sorting Controls */}
+        {/* Project, Auto-Archive & Sorting Controls */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
           {/* Project Filter */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -192,21 +206,67 @@ export const TodoList = ({ onOpenCreateTodo }) => {
           </div>
 
           {/* Sort By Dropdown including Drag to Arrange */}
+          {activeFilter !== 'archived' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <ArrowUpDown size={15} color="var(--text-muted)" />
+              <select
+                className="form-select"
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                style={{ width: 'auto', padding: '8px 12px', fontSize: '0.85rem' }}
+              >
+                <option value="manual">🎯 Drag to Arrange (Custom Priority)</option>
+                <option value="priority">Sort by Priority (High to Low)</option>
+                <option value="date">Sort by Due Date</option>
+                <option value="newest">Sort by Recently Created</option>
+                <option value="title">Sort by Title (A-Z)</option>
+              </select>
+            </div>
+          )}
+
+          {/* Auto-Archive Mode Selector */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <ArrowUpDown size={15} color="var(--text-muted)" />
+            <Clock size={15} color="#818cf8" />
             <select
               className="form-select"
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value)}
-              style={{ width: 'auto', padding: '8px 12px', fontSize: '0.85rem' }}
+              value={autoArchiveMode}
+              onChange={(e) => setAutoArchiveMode(e.target.value)}
+              title="Task Auto-Removal Setting: choose when finished tasks automatically clear"
+              style={{
+                width: 'auto',
+                padding: '8px 12px',
+                fontSize: '0.825rem',
+                borderColor: 'var(--border-subtle)',
+                background: 'var(--bg-secondary)',
+                cursor: 'pointer'
+              }}
             >
-              <option value="manual">🎯 Drag to Arrange (Custom Priority)</option>
-              <option value="priority">Sort by Priority (High to Low)</option>
-              <option value="date">Sort by Due Date</option>
-              <option value="newest">Sort by Recently Created</option>
-              <option value="title">Sort by Title (A-Z)</option>
+              <option value="midnight">⏱️ Auto-Clear: At 12:00 AM (Midnight)</option>
+              <option value="time_passed">⚡ Auto-Clear: When Timeline Finishes</option>
+              <option value="manual">🛑 Auto-Clear: Off (Manual Only)</option>
             </select>
           </div>
+
+          {/* Quick Clear Finished Action */}
+          {activeFilter !== 'archived' && todos.some(t => t.completed) && (
+            <button
+              onClick={() => clearFinishedTasksNow()}
+              className="btn btn-ghost btn-sm"
+              title="Archive finished timeline tasks now & lock progress report"
+              style={{
+                fontSize: '0.775rem',
+                gap: '5px',
+                padding: '7px 11px',
+                color: 'var(--text-main)',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--border-subtle)',
+                background: 'rgba(99, 102, 241, 0.08)'
+              }}
+            >
+              <Sparkles size={13} color="var(--accent-primary)" />
+              <span>Clear Finished</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -234,6 +294,31 @@ export const TodoList = ({ onOpenCreateTodo }) => {
           >
             Clear Date Filter
           </button>
+        </div>
+      )}
+
+      {/* Archived View Notification Banner */}
+      {activeFilter === 'archived' && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '12px',
+          padding: '12px 18px',
+          background: 'rgba(99, 102, 241, 0.08)',
+          border: '1px solid rgba(99, 102, 241, 0.25)',
+          borderRadius: 'var(--radius-md)',
+          marginBottom: '16px',
+          fontSize: '0.85rem',
+          color: 'var(--text-main)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Archive size={16} color="#818cf8" />
+            <span>
+              <strong>Archived Tasks Vault:</strong> Past and finished timeline items are safely preserved here. Daily completion metrics are locked in your <strong>Progress Graph</strong> while keeping your active workspace lean.
+            </span>
+          </div>
         </div>
       )}
 
@@ -346,13 +431,19 @@ export const TodoList = ({ onOpenCreateTodo }) => {
           </div>
 
           <h4 style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--text-main)' }}>
-            {todos.length === 0 ? 'Your workspace is ready' : 'No tasks found'}
+            {activeFilter === 'archived'
+              ? 'No archived tasks'
+              : todos.length === 0
+              ? 'Your workspace is ready'
+              : 'No tasks found'}
           </h4>
           <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', maxWidth: '380px', margin: 0, lineHeight: 1.5 }}>
             {searchQuery
               ? `No tasks match "${searchQuery}".`
               : selectedCalendarDate
               ? `No tasks scheduled for ${selectedCalendarDate}.`
+              : activeFilter === 'archived'
+              ? 'No tasks in the archive yet. Tasks will be stored here automatically when their timeline completes or when midnight reset triggers.'
               : activeFilter === 'completed'
               ? 'No completed tasks yet. Finish a task to experience the celebration!'
               : todos.length === 0
@@ -360,33 +451,115 @@ export const TodoList = ({ onOpenCreateTodo }) => {
               : 'Your workspace is clear! All tasks completed or deleted. Add a new task to keep building.'}
           </p>
 
-          <button
-            onClick={onOpenCreateTodo}
-            className="btn btn-primary btn-sm"
-            style={{ marginTop: '6px' }}
-          >
-            <Plus size={15} /> {todos.length === 0 ? 'Create First Task' : 'Create Task'}
-          </button>
+          {activeFilter !== 'archived' && (
+            <button
+              onClick={onOpenCreateTodo}
+              className="btn btn-primary btn-sm"
+              style={{ marginTop: '6px' }}
+            >
+              <Plus size={15} /> {todos.length === 0 ? 'Create First Task' : 'Create Task'}
+            </button>
+          )}
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          {sortedTodos.map((todo, index) => (
-            <TodoCard
-              key={todo.id}
-              todo={todo}
-              index={index}
-              isDragging={draggedIndex === index}
-              isDragOver={dragOverIndex === index}
-              onDragStart={handleDragStart}
-              onDragOver={handleDragOver}
-              onDragEnd={handleDragEnd}
-              onDrop={handleDrop}
-              canMoveUp={index > 0}
-              canMoveDown={index < sortedTodos.length - 1}
-              onMoveUp={() => handleMoveUp(index)}
-              onMoveDown={() => handleMoveDown(index)}
-            />
-          ))}
+          {sortedTodos.map((todo, index) => {
+            if (activeFilter === 'archived') {
+              const project = projects.find(p => p.id === todo.project_id);
+              return (
+                <div
+                  key={todo.id}
+                  className="glass-panel"
+                  style={{
+                    padding: '14px 18px',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--border-subtle)',
+                    background: 'var(--bg-secondary)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '14px'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: 0 }}>
+                    <div style={{
+                      width: '26px',
+                      height: '26px',
+                      borderRadius: '50%',
+                      background: todo.completed ? 'rgba(16, 185, 129, 0.15)' : 'var(--bg-tertiary)',
+                      color: todo.completed ? '#10b981' : 'var(--text-dim)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0
+                    }}>
+                      <CheckCircle2 size={15} />
+                    </div>
+                    <div style={{ minWidth: 0 }}>
+                      <h4 style={{
+                        fontSize: '0.95rem',
+                        fontWeight: 600,
+                        margin: 0,
+                        textDecoration: todo.completed ? 'line-through' : 'none',
+                        color: todo.completed ? 'var(--text-muted)' : 'var(--text-main)',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis'
+                      }}>
+                        {todo.title}
+                      </h4>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px', fontSize: '0.75rem', color: 'var(--text-dim)', flexWrap: 'wrap' }}>
+                        {todo.due_date && <span>📅 Due {todo.due_date}</span>}
+                        {todo.due_time && <span>• ⏰ {todo.due_time}</span>}
+                        {project && <span>• 📁 {project.name}</span>}
+                        <span style={{ color: '#818cf8', fontWeight: 600 }}>• Archived</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                    <button
+                      onClick={() => restoreArchivedTodo(todo.id)}
+                      className="btn btn-secondary btn-sm"
+                      title="Restore task to active workspace"
+                      style={{ fontSize: '0.75rem', gap: '5px', padding: '6px 12px' }}
+                    >
+                      <RotateCcw size={13} />
+                      <span>Restore</span>
+                    </button>
+                    <button
+                      onClick={() => deleteArchivedTodo(todo.id)}
+                      className="btn-ghost"
+                      title="Delete permanently from archives"
+                      style={{ padding: '6px', borderRadius: '5px', color: 'var(--text-dim)' }}
+                      onMouseEnter={(e) => e.currentTarget.style.color = '#ef4444'}
+                      onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-dim)'}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
+              );
+            }
+
+            return (
+              <TodoCard
+                key={todo.id}
+                todo={todo}
+                index={index}
+                isDragging={draggedIndex === index}
+                isDragOver={dragOverIndex === index}
+                onDragStart={handleDragStart}
+                onDragOver={handleDragOver}
+                onDragEnd={handleDragEnd}
+                onDrop={handleDrop}
+                canMoveUp={index > 0}
+                canMoveDown={index < sortedTodos.length - 1}
+                onMoveUp={() => handleMoveUp(index)}
+                onMoveDown={() => handleMoveDown(index)}
+              />
+            );
+          })}
         </div>
       )}
     </div>

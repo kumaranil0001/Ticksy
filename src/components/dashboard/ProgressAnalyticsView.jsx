@@ -14,14 +14,15 @@ import {
   RotateCcw
 } from 'lucide-react';
 import { useTodos } from '../../context/TodoContext';
+import { getLocalDateString } from '../../lib/dateUtils';
 
 export const ProgressAnalyticsView = ({ onBackToTasks, onSwitchToProfile, onSelectDateFilter }) => {
   const { todos, stats, setSelectedCalendarDate, progressHistory, seedProgressHistory } = useTodos();
   const [rangeDays, setRangeDays] = useState(7); // 7, 14, 30, or 0 (all)
   const [hoveredDay, setHoveredDay] = useState(null);
 
-  // Today's date string
-  const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
+  // Today's date string evaluated in local timezone
+  const todayStr = useMemo(() => getLocalDateString(), []);
 
   // Compute date-wise success metrics
   const dateMetrics = useMemo(() => {
@@ -39,14 +40,14 @@ export const ProgressAnalyticsView = ({ onBackToTasks, onSwitchToProfile, onSele
       Object.keys(progressHistory).forEach(d => todoDates.add(d));
     }
 
-    // Generate chronological list of dates based on rangeDays
+    // Generate chronological list of dates based on rangeDays in local timezone
     const dates = [];
     const count = rangeDays === 0 ? 30 : rangeDays;
 
     for (let i = count - 1; i >= 0; i--) {
       const d = new Date();
       d.setDate(d.getDate() - i);
-      dates.push(d.toISOString().split('T')[0]);
+      dates.push(getLocalDateString(d));
     }
 
     // Add any future dates that have tasks scheduled
@@ -89,8 +90,18 @@ export const ProgressAnalyticsView = ({ onBackToTasks, onSwitchToProfile, onSele
         rate = Math.round((completed / total) * 100);
       }
 
-      // Format human-friendly label
-      const dObj = new Date(dateStr + 'T00:00:00');
+      // Format human-friendly label without UTC offset skew
+      let dObj;
+      try {
+        const parts = dateStr.split('-');
+        if (parts.length === 3) {
+          dObj = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+        } else {
+          dObj = new Date(dateStr);
+        }
+      } catch {
+        dObj = new Date();
+      }
       const isToday = dateStr === todayStr;
       const shortDay = dObj.toLocaleDateString('en-US', { weekday: 'short' });
       const monthDay = dObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });

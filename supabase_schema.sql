@@ -77,3 +77,28 @@ create index if not exists todos_user_id_idx on public.todos (user_id);
 create index if not exists todos_project_id_idx on public.todos (project_id);
 create index if not exists todos_due_date_idx on public.todos (due_date);
 create index if not exists projects_user_id_idx on public.projects (user_id);
+
+-- 4. Lightweight Daily Progress Snapshot Table (Optional dedicated table to minimize DB load)
+create table if not exists public.daily_progress (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) on delete cascade not null,
+  date date not null,
+  total integer default 0 not null,
+  completed integer default 0 not null,
+  rate integer default 0 not null,
+  updated_at timestamp with time zone default timezone('utc'::text, now()) not null,
+  unique(user_id, date)
+);
+
+alter table public.daily_progress enable row level security;
+
+create policy "Users can view own daily progress" 
+  on public.daily_progress for select 
+  using (auth.uid() = user_id);
+
+create policy "Users can upsert own daily progress" 
+  on public.daily_progress for all 
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+create index if not exists daily_progress_user_date_idx on public.daily_progress (user_id, date);

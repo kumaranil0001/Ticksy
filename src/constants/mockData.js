@@ -64,11 +64,14 @@ export const INITIAL_PROJECTS = [
   }
 ];
 
-// Helper to format ISO date string for today and upcoming days
+// Helper to format local date string for today and upcoming days
 const getOffsetDate = (days) => {
   const d = new Date();
   d.setDate(d.getDate() + days);
-  return d.toISOString().split('T')[0];
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 };
 
 export const INITIAL_TODOS = [

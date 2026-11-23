@@ -10,18 +10,14 @@ import {
 } from 'lucide-react';
 import { useTodos } from '../../context/TodoContext';
 import { TodoCard } from './TodoCard';
+import { getLocalDateString, getOffsetDateString } from '../../lib/dateUtils';
 
 export const ScheduleView = () => {
   const { todos } = useTodos();
 
-  const todayStr = new Date().toISOString().split('T')[0];
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const tomorrowStr = tomorrow.toISOString().split('T')[0];
-
-  const nextWeek = new Date();
-  nextWeek.setDate(nextWeek.getDate() + 7);
-  const nextWeekStr = nextWeek.toISOString().split('T')[0];
+  const todayStr = getLocalDateString();
+  const tomorrowStr = getOffsetDateString(1);
+  const nextWeekStr = getOffsetDateString(7);
 
   const overdue = todos.filter(t => t.due_date && t.due_date < todayStr && !t.completed);
   const todayTasks = todos.filter(t => t.due_date === todayStr);
