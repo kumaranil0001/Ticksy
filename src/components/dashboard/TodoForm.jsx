@@ -111,7 +111,13 @@ export const TodoForm = ({
     }
   }, [title, description, isSubmitting, tagInput, addTodo, priority, dueDate, dueTime, projectId, onSaved, handleClose]);
 
-  // Focus title input when modal opens & handle Escape / Ctrl+Enter keyboard shortcuts
+  const handleSubmitRef = useRef(handleSubmit);
+  handleSubmitRef.current = handleSubmit;
+
+  const handleCloseRef = useRef(handleClose);
+  handleCloseRef.current = handleClose;
+
+  // Auto-focus title input strictly ONCE when modal opens
   useEffect(() => {
     if (!isOpen) return;
 
@@ -119,21 +125,25 @@ export const TodoForm = ({
       titleInputRef.current?.focus();
     }, 60);
 
+    return () => clearTimeout(timer);
+  }, [isOpen]);
+
+  // Handle Escape and Ctrl+Enter keyboard shortcuts
+  useEffect(() => {
+    if (!isOpen) return;
+
     const handleKeyDown = (e) => {
       if (e.key === 'Escape') {
-        handleClose();
+        handleCloseRef.current();
       } else if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
         e.preventDefault();
-        handleSubmit(e);
+        handleSubmitRef.current(e);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      clearTimeout(timer);
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isOpen, handleSubmit, handleClose]);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen]);
 
   const handleAddQuickTag = (tag) => {
     const clean = tag.replace(/^[^\w]+/, '').trim();
