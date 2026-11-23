@@ -133,59 +133,45 @@ export const TodoProvider = ({ children }) => {
     }
   }, [todos, projects, isGuest]);
 
-  // Lightweight Daily Progress History Engine (Reduces DB load by storing only lightweight daily metrics)
+  // Lightweight Daily Progress History Engine (Stores only actual, real daily metrics)
   const historyStorageKey = user?.id ? `ticksy_progress_history_${user.id}` : 'ticksy_progress_history_guest';
   const [progressHistory, setProgressHistory] = useState({});
 
-  // Helper to generate a realistic initial historical baseline for previous days so graph is never empty
-  const generateInitialSeedHistory = useCallback(() => {
-    const seed = {};
-    const sampleRates = [85, 100, 75, 90, 100, 80]; // realistic positive rates for previous 6 days
-    for (let i = 6; i >= 1; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      const dStr = getLocalDateString(d);
-      const rate = sampleRates[6 - i] || 85;
-      const total = 4 + (i % 3);
-      const completed = Math.round((total * rate) / 100);
-      seed[dStr] = {
-        date: dStr,
-        total,
-        completed,
-        rate,
-        isSnapshot: true
-      };
-    }
-    return seed;
-  }, []);
-
-  // Load progress history from storage
+  // Purge any legacy fake seed data and load only genuine historical records
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(historyStorageKey);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        // If parsed is empty or has fewer than 2 days, combine with seed
-        if (Object.keys(parsed).length < 2) {
-          const seed = generateInitialSeedHistory();
-          const merged = { ...seed, ...parsed };
-          setProgressHistory(merged);
-          localStorage.setItem(historyStorageKey, JSON.stringify(merged));
-        } else {
-          setProgressHistory(parsed);
-        }
-      } else {
-        const seed = generateInitialSeedHistory();
-        setProgressHistory(seed);
-        localStorage.setItem(historyStorageKey, JSON.stringify(seed));
-      }
-    } catch (e) {
-      const seed = generateInitialSeedHistory();
-      setProgressHistory(seed);
-    }
-  }, [historyStorageKey, generateInitialSeedHistory]);
+    const keysToCheck = ['ticksy_progress_history_guest'];
+    if (user?.id) keysToCheck.push(`ticksy_progress_history_${user.id}`);
 
-  // Record / update a day's progress snapshot
+    keysToCheck.forEach(key => {
+      try {
+        const stored = localStorage.getItem(key);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          const realHistory = {};
+          let hasLegacyFake = false;
+          Object.entries(parsed).forEach(([dStr, val]) => {
+            if (val && !val.isSnapshot && typeof val.total === 'number') {
+              realHistory[dStr] = val;
+            } else {
+              hasLegacyFake = true;
+            }
+          });
+          if (hasLegacyFake) {
+            localStorage.setItem(key, JSON.stringify(realHistory));
+          }
+          if (key === historyStorageKey) {
+            setProgressHistory(realHistory);
+          }
+        } else if (key === historyStorageKey) {
+          setProgressHistory({});
+        }
+      } catch (e) {
+        if (key === historyStorageKey) setProgressHistory({});
+      }
+    });
+  }, [historyStorageKey, user]);
+
+  // Record / update a day's real progress snapshot
   const recordDailyProgress = useCallback((dateStr, total, completed) => {
     setProgressHistory(prev => {
       const rate = total > 0 ? Math.round((completed / total) * 100) : 0;
@@ -206,17 +192,57 @@ export const TodoProvider = ({ children }) => {
     });
   }, [historyStorageKey]);
 
-  // Backfill or regenerate seed history
-  const seedProgressHistory = useCallback((customSeed = null) => {
-    const seed = customSeed || generateInitialSeedHistory();
+  // Re-calculate actual historical metrics from real tasks in the workspace
+  const recalculateActualHistory = useCallback(() => {
+    if (!todos || todos.length === 0) return;
+
+    const actualMap = {};
+    todos.forEach(t => {
+      const d = t.due_date || (t.created_at ? t.created_at.split('T')[0] : null);
+      if (d) {
+        if (!actualMap[d]) {
+          actualMap[d] = { date: d, total: 0, completed: 0, rate: 0 };
+        }
+        actualMap[d].total += 1;
+        if (t.completed) actualMap[d].completed += 1;
+      }
+    });
+
+    Object.keys(actualMap).forEach(d => {
+      const item = actualMap[d];
+      item.rate = item.total > 0 ? Math.round((item.completed / item.total) * 100) : 0;
+      item.updated_at = new Date().toISOString();
+    });
+
     setProgressHistory(prev => {
-      const merged = { ...seed, ...prev };
+      const merged = { ...prev };
+      Object.entries(actualMap).forEach(([d, val]) => {
+        if (merged[d]) {
+          const maxTotal = Math.max(merged[d].total || 0, val.total);
+          const maxCompleted = Math.max(merged[d].completed || 0, val.completed);
+          merged[d] = {
+            ...merged[d],
+            total: maxTotal,
+            completed: maxCompleted,
+            rate: maxTotal > 0 ? Math.round((maxCompleted / maxTotal) * 100) : 0
+          };
+        } else {
+          merged[d] = val;
+        }
+      });
       try {
         localStorage.setItem(historyStorageKey, JSON.stringify(merged));
       } catch (err) {}
       return merged;
     });
-  }, [historyStorageKey, generateInitialSeedHistory]);
+  }, [todos, historyStorageKey]);
+
+  // Keep progress synchronized with actual tasks
+  useEffect(() => {
+    if (todos.length > 0) {
+      recalculateActualHistory();
+    }
+  }, [todos.length, recalculateActualHistory]);
 
   // Task Auto-Archive & Timeline Cleanup Configuration
   // Modes: 'midnight' (default: reset at 12:00 AM daily), 'time_passed' (auto-clear as timeline/time finishes), 'manual'
@@ -711,7 +737,8 @@ export const TodoProvider = ({ children }) => {
         reorderTodos,
         progressHistory,
         recordDailyProgress,
-        seedProgressHistory,
+        recalculateActualHistory,
+        seedProgressHistory: recalculateActualHistory,
         autoArchiveMode,
         setAutoArchiveMode,
         archivedTodos,

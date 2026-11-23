@@ -75,19 +75,19 @@ export const ProgressAnalyticsView = ({ onBackToTasks, onSwitchToProfile, onSele
       let completed = 0;
       let rate = 0;
 
-      // Prioritize active todos for today, otherwise rely on preserved historical snapshot
-      if (dateStr === todayStr && (forDate.length > 0 || (stats && stats.total > 0))) {
-        total = forDate.length > 0 ? forDate.length : stats.total;
-        completed = forDate.length > 0 ? forDate.filter(t => t.completed).length : stats.completed;
-        rate = total > 0 ? Math.round((completed / total) * 100) : 0;
-      } else if (historicalSnapshot && historicalSnapshot.total > 0) {
-        total = historicalSnapshot.total;
-        completed = historicalSnapshot.completed;
-        rate = historicalSnapshot.rate;
-      } else if (forDate.length > 0) {
+      // Map each date to strictly actual user metrics (0 if no activity)
+      if (forDate.length > 0) {
         total = forDate.length;
         completed = forDate.filter(t => t.completed).length;
         rate = Math.round((completed / total) * 100);
+      } else if (historicalSnapshot && typeof historicalSnapshot.total === 'number' && historicalSnapshot.total > 0) {
+        total = historicalSnapshot.total;
+        completed = historicalSnapshot.completed || 0;
+        rate = historicalSnapshot.rate || 0;
+      } else {
+        total = 0;
+        completed = 0;
+        rate = 0;
       }
 
       // Format human-friendly label without UTC offset skew
@@ -125,9 +125,9 @@ export const ProgressAnalyticsView = ({ onBackToTasks, onSwitchToProfile, onSele
   const activeDays = dateMetrics.filter(d => d.total > 0);
   const averageSuccessRate = activeDays.length > 0
     ? Math.round(activeDays.reduce((acc, curr) => acc + curr.rate, 0) / activeDays.length)
-    : stats.completionPercentage || 0;
+    : 0;
 
-  const perfectDaysCount = activeDays.filter(d => d.rate === 100).length;
+  const perfectDaysCount = activeDays.filter(d => d.rate === 100 && d.total > 0).length;
 
   const bestDay = activeDays.reduce((best, curr) => {
     if (!best) return curr;
@@ -432,7 +432,7 @@ export const ProgressAnalyticsView = ({ onBackToTasks, onSwitchToProfile, onSele
                 fontWeight: 600
               }}>
                 <Zap size={11} />
-                <span>Lightweight Metric Snapshots • Low DB Load</span>
+                <span>Verified Actual Stats • Zero DB Overload</span>
               </span>
             </div>
           </div>
@@ -474,7 +474,7 @@ export const ProgressAnalyticsView = ({ onBackToTasks, onSwitchToProfile, onSele
             <button
               onClick={() => seedProgressHistory()}
               className="btn btn-ghost btn-sm"
-              title="Re-sync or backfill historical baseline for past days"
+              title="Recalculate stats from your actual tasks"
               style={{
                 fontSize: '0.75rem',
                 gap: '5px',
@@ -485,7 +485,7 @@ export const ProgressAnalyticsView = ({ onBackToTasks, onSwitchToProfile, onSele
               }}
             >
               <RotateCcw size={13} />
-              <span>Sync History</span>
+              <span>Refresh Stats</span>
             </button>
           </div>
         </div>
