@@ -2,8 +2,8 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import confetti from 'canvas-confetti';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { useAuth } from './AuthContext';
-import { INITIAL_TODOS, INITIAL_PROJECTS } from '../constants/mockData';
-import { getLocalDateString, getOffsetDateString, isTaskTimelineFinished } from '../lib/dateUtils';
+import { INITIAL_TODOS, INITIAL_PROJECTS, DEFAULT_USER_PROJECT } from '../constants/mockData';
+import { getLocalDateString, getOffsetDateString, isTaskTimelineFinished, getTaskDate } from '../lib/dateUtils';
 
 const TodoContext = createContext({});
 
@@ -31,12 +31,43 @@ export const TodoProvider = ({ children }) => {
           .select('*')
           .order('created_at', { ascending: false });
 
-        if (projError) {
-          console.warn('Supabase projects fetch error:', projError);
-          setProjects([]);
-        } else {
-          setProjects(userProjects || []);
+        let loadedProjects = userProjects || [];
+
+        // Check local storage for any projects previously created or cached
+        try {
+          const cachedProjects = localStorage.getItem(`ticksy_projects_${user.id}`);
+          if (cachedProjects) {
+            const parsed = JSON.parse(cachedProjects);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              const map = new Map(loadedProjects.map(p => [p.id, p]));
+              parsed.forEach(p => {
+                if (!map.has(p.id)) map.set(p.id, p);
+              });
+              loadedProjects = Array.from(map.values());
+            }
+          }
+        } catch (e) {}
+
+        // If new or existing user has 0 projects, provide the default General project
+        if (loadedProjects.length === 0) {
+          loadedProjects = [DEFAULT_USER_PROJECT];
+          if (isSupabaseConfigured()) {
+            supabase.from('projects').insert([{
+              name: DEFAULT_USER_PROJECT.name,
+              description: DEFAULT_USER_PROJECT.description,
+              color: DEFAULT_USER_PROJECT.color,
+              icon: DEFAULT_USER_PROJECT.icon,
+              user_id: user.id
+            }]).then(({ data }) => {
+              if (data) setProjects([data]);
+            }).catch(() => {});
+          }
         }
+
+        setProjects(loadedProjects);
+        try {
+          localStorage.setItem(`ticksy_projects_${user.id}`, JSON.stringify(loadedProjects));
+        } catch (e) {}
 
         // Fetch Todos from Supabase
         const { data: userTodos, error: todoError } = await supabase
@@ -137,6 +168,63 @@ export const TodoProvider = ({ children }) => {
   const historyStorageKey = user?.id ? `ticksy_progress_history_${user.id}` : 'ticksy_progress_history_guest';
   const [progressHistory, setProgressHistory] = useState({});
 
+  // Task Auto-Archive & Timeline Cleanup Configuration
+  // Modes: 'midnight' (default: reset at 12:00 AM daily), 'time_passed' (auto-clear as timeline/time finishes), 'manual'
+  const [autoArchiveMode, setAutoArchiveModeState] = useState(() => {
+    return localStorage.getItem('ticksy_auto_archive_mode') || 'midnight';
+  });
+
+  const [archivedTodos, setArchivedTodos] = useState(() => {
+    try {
+      const stored = localStorage.getItem(`ticksy_archived_todos_${user?.id || 'guest'}`);
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const setAutoArchiveMode = (mode) => {
+    setAutoArchiveModeState(mode);
+    localStorage.setItem('ticksy_auto_archive_mode', mode);
+  };
+
+  // Synchronize progress history strictly from current active + archived tasks
+  const syncProgressHistory = useCallback((currentTodos, currentArchived) => {
+    const activeList = currentTodos !== undefined ? currentTodos : todos;
+    const archivedList = currentArchived !== undefined ? currentArchived : archivedTodos;
+    const combined = [...(activeList || []), ...(archivedList || [])];
+    const dateStats = {};
+
+    combined.forEach(t => {
+      // Attribute each task strictly to ONE single date: created_at date in local timezone
+      const dateKey = getTaskDate(t);
+      if (!dateStats[dateKey]) {
+        dateStats[dateKey] = { date: dateKey, total: 0, completed: 0, rate: 0 };
+      }
+      dateStats[dateKey].total += 1;
+      if (t.completed) {
+        dateStats[dateKey].completed += 1;
+      }
+    });
+
+    Object.keys(dateStats).forEach(d => {
+      const s = dateStats[d];
+      s.rate = s.total > 0 ? Math.round((s.completed / s.total) * 100) : 0;
+      s.updated_at = new Date().toISOString();
+    });
+
+    setProgressHistory(dateStats);
+    try {
+      localStorage.setItem(historyStorageKey, JSON.stringify(dateStats));
+    } catch (err) {}
+    return dateStats;
+  }, [todos, archivedTodos, historyStorageKey]);
+
+  // Keep progress synchronized with actual tasks whenever tasks or archives change
+  useEffect(() => {
+    syncProgressHistory(todos, archivedTodos);
+  }, [todos, archivedTodos, syncProgressHistory]);
+
   // Purge any legacy fake seed data and load only genuine historical records
   useEffect(() => {
     const keysToCheck = ['ticksy_progress_history_guest'];
@@ -159,124 +247,10 @@ export const TodoProvider = ({ children }) => {
           if (hasLegacyFake) {
             localStorage.setItem(key, JSON.stringify(realHistory));
           }
-          if (key === historyStorageKey) {
-            setProgressHistory(realHistory);
-          }
-        } else if (key === historyStorageKey) {
-          setProgressHistory({});
         }
-      } catch (e) {
-        if (key === historyStorageKey) setProgressHistory({});
-      }
+      } catch (e) {}
     });
-  }, [historyStorageKey, user]);
-
-  // Record / update a day's real progress snapshot
-  const recordDailyProgress = useCallback((dateStr, total, completed) => {
-    setProgressHistory(prev => {
-      const rate = total > 0 ? Math.round((completed / total) * 100) : 0;
-      const updated = {
-        ...prev,
-        [dateStr]: {
-          date: dateStr,
-          total,
-          completed,
-          rate,
-          updated_at: new Date().toISOString()
-        }
-      };
-      try {
-        localStorage.setItem(historyStorageKey, JSON.stringify(updated));
-      } catch (err) {}
-      return updated;
-    });
-  }, [historyStorageKey]);
-
-  // Re-calculate actual historical metrics from real tasks in the workspace
-  const recalculateActualHistory = useCallback(() => {
-    if (!todos || todos.length === 0) return;
-
-    const actualMap = {};
-    todos.forEach(t => {
-      const d = t.due_date || (t.created_at ? t.created_at.split('T')[0] : null);
-      if (d) {
-        if (!actualMap[d]) {
-          actualMap[d] = { date: d, total: 0, completed: 0, rate: 0 };
-        }
-        actualMap[d].total += 1;
-        if (t.completed) actualMap[d].completed += 1;
-      }
-    });
-
-    Object.keys(actualMap).forEach(d => {
-      const item = actualMap[d];
-      item.rate = item.total > 0 ? Math.round((item.completed / item.total) * 100) : 0;
-      item.updated_at = new Date().toISOString();
-    });
-
-    setProgressHistory(prev => {
-      const merged = { ...prev };
-      Object.entries(actualMap).forEach(([d, val]) => {
-        if (merged[d]) {
-          const maxTotal = Math.max(merged[d].total || 0, val.total);
-          const maxCompleted = Math.max(merged[d].completed || 0, val.completed);
-          merged[d] = {
-            ...merged[d],
-            total: maxTotal,
-            completed: maxCompleted,
-            rate: maxTotal > 0 ? Math.round((maxCompleted / maxTotal) * 100) : 0
-          };
-        } else {
-          merged[d] = val;
-        }
-      });
-      try {
-        localStorage.setItem(historyStorageKey, JSON.stringify(merged));
-      } catch (err) {}
-      return merged;
-    });
-  }, [todos, historyStorageKey]);
-
-  // Keep progress synchronized with actual tasks
-  useEffect(() => {
-    if (todos.length > 0) {
-      recalculateActualHistory();
-    }
-  }, [todos.length, recalculateActualHistory]);
-
-  // Task Auto-Archive & Timeline Cleanup Configuration
-  // Modes: 'midnight' (default: reset at 12:00 AM daily), 'time_passed' (auto-clear as timeline/time finishes), 'manual'
-  const [autoArchiveMode, setAutoArchiveModeState] = useState(() => {
-    return localStorage.getItem('ticksy_auto_archive_mode') || 'midnight';
-  });
-
-  const [archivedTodos, setArchivedTodos] = useState(() => {
-    try {
-      const stored = localStorage.getItem(`ticksy_archived_todos_${user?.id || 'guest'}`);
-      return stored ? JSON.parse(stored) : [];
-    } catch {
-      return [];
-    }
-  });
-
-  const setAutoArchiveMode = (mode) => {
-    setAutoArchiveModeState(mode);
-    localStorage.setItem('ticksy_auto_archive_mode', mode);
-  };
-
-  // Automatically sync today's progress snapshot into history
-  useEffect(() => {
-    const todayStr = getLocalDateString();
-    const todayTodos = todos.filter(t => t.due_date === todayStr);
-
-    if (todayTodos.length > 0) {
-      const completed = todayTodos.filter(t => t.completed).length;
-      recordDailyProgress(todayStr, todayTodos.length, completed);
-    } else if (todos.length > 0) {
-      const completed = todos.filter(t => t.completed).length;
-      recordDailyProgress(todayStr, todos.length, completed);
-    }
-  }, [todos, recordDailyProgress]);
+  }, [user]);
 
   // Perform automatic timeline cleanup & ensure daily progress is locked into database/history
   const cleanupFinishedTasks = useCallback(() => {
@@ -289,22 +263,6 @@ export const TodoProvider = ({ children }) => {
       // Find tasks whose timeline has finished
       const tasksToArchive = currentTodos.filter(t => isTaskTimelineFinished(t, autoArchiveMode, now));
       if (tasksToArchive.length === 0) return currentTodos;
-
-      // Group tasks by due_date to guarantee daily metrics are permanently saved into progressHistory
-      const datesToRecord = {};
-      currentTodos.forEach(t => {
-        const d = t.due_date || t.created_at?.split('T')[0] || todayStr;
-        if (!datesToRecord[d]) {
-          datesToRecord[d] = { total: 0, completed: 0 };
-        }
-        datesToRecord[d].total += 1;
-        if (t.completed) datesToRecord[d].completed += 1;
-      });
-
-      // Save each date's progress report into progressHistory
-      Object.entries(datesToRecord).forEach(([dateStr, metrics]) => {
-        recordDailyProgress(dateStr, metrics.total, metrics.completed);
-      });
 
       // Add tasks to archived list so user can still see them under 'Archived' if needed
       setArchivedTodos(prev => {
@@ -330,7 +288,7 @@ export const TodoProvider = ({ children }) => {
 
       return remainingTodos;
     });
-  }, [autoArchiveMode, recordDailyProgress, user, isGuest]);
+  }, [autoArchiveMode, user, isGuest]);
 
   // Run cleanup on mount, when mode changes, and on interval every 30 seconds
   useEffect(() => {
@@ -349,13 +307,11 @@ export const TodoProvider = ({ children }) => {
     const todoToRestore = archivedTodos.find(t => t.id === todoId);
     if (!todoToRestore) return;
 
-    setArchivedTodos(prev => {
-      const updated = prev.filter(t => t.id !== todoId);
-      try {
-        localStorage.setItem(`ticksy_archived_todos_${user?.id || 'guest'}`, JSON.stringify(updated));
-      } catch (e) {}
-      return updated;
-    });
+    const remainingArchived = archivedTodos.filter(t => t.id !== todoId);
+    setArchivedTodos(remainingArchived);
+    try {
+      localStorage.setItem(`ticksy_archived_todos_${user?.id || 'guest'}`, JSON.stringify(remainingArchived));
+    } catch (e) {}
 
     const todayStr = getLocalDateString();
     const restoredTodo = {
@@ -364,7 +320,9 @@ export const TodoProvider = ({ children }) => {
       due_date: todoToRestore.due_date && todoToRestore.due_date < todayStr ? todayStr : todoToRestore.due_date
     };
 
-    setTodos(prev => [restoredTodo, ...prev]);
+    const updatedTodos = [restoredTodo, ...todos];
+    setTodos(updatedTodos);
+    syncProgressHistory(updatedTodos, remainingArchived);
 
     if (user && !isGuest && isSupabaseConfigured()) {
       try {
@@ -382,13 +340,12 @@ export const TodoProvider = ({ children }) => {
 
   // Permanently delete an archived task
   const deleteArchivedTodo = (todoId) => {
-    setArchivedTodos(prev => {
-      const updated = prev.filter(t => t.id !== todoId);
-      try {
-        localStorage.setItem(`ticksy_archived_todos_${user?.id || 'guest'}`, JSON.stringify(updated));
-      } catch (e) {}
-      return updated;
-    });
+    const remainingArchived = archivedTodos.filter(t => t.id !== todoId);
+    setArchivedTodos(remainingArchived);
+    try {
+      localStorage.setItem(`ticksy_archived_todos_${user?.id || 'guest'}`, JSON.stringify(remainingArchived));
+    } catch (e) {}
+    syncProgressHistory(todos, remainingArchived);
   };
 
   // Trigger celebration confetti
@@ -535,8 +492,21 @@ export const TodoProvider = ({ children }) => {
       todo: target
     });
 
-    // Remove from UI optimistically
-    setTodos(prev => prev.filter(t => t.id !== id));
+    // 1. Remove from UI optimistically
+    const remainingTodos = todos.filter(t => t.id !== id);
+    setTodos(remainingTodos);
+
+    // 2. Also remove from archived if present
+    const remainingArchived = archivedTodos.filter(t => t.id !== id);
+    if (remainingArchived.length !== archivedTodos.length) {
+      setArchivedTodos(remainingArchived);
+      try {
+        localStorage.setItem(`ticksy_archived_todos_${user?.id || 'guest'}`, JSON.stringify(remainingArchived));
+      } catch (e) {}
+    }
+
+    // 3. Immediately re-calculate and save progress history without the deleted task
+    syncProgressHistory(remainingTodos, remainingArchived);
 
     if (user && !isGuest && isSupabaseConfigured()) {
       try {
@@ -557,9 +527,11 @@ export const TodoProvider = ({ children }) => {
   const undoDelete = async () => {
     if (!lastDeletedTodo) return;
     const restored = { ...lastDeletedTodo };
-    setTodos(prev => [restored, ...prev]);
+    const updatedTodos = [restored, ...todos];
+    setTodos(updatedTodos);
     setDeleteToast(null);
     setLastDeletedTodo(null);
+    syncProgressHistory(updatedTodos, archivedTodos);
 
     if (user && !isGuest && isSupabaseConfigured()) {
       try {
@@ -587,7 +559,13 @@ export const TodoProvider = ({ children }) => {
       created_at: new Date().toISOString()
     };
 
-    setProjects(prev => [...prev, newProj]);
+    setProjects(prev => {
+      const updated = [...prev, newProj];
+      try {
+        localStorage.setItem(`ticksy_projects_${user?.id || 'guest'}`, JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
 
     if (user && !isGuest && isSupabaseConfigured()) {
       try {
@@ -595,8 +573,10 @@ export const TodoProvider = ({ children }) => {
         const { data, error } = await supabase
           .from('projects')
           .insert([{
-            ...newProj,
-            id: undefined,
+            name: newProj.name,
+            description: newProj.description,
+            color: newProj.color,
+            icon: newProj.icon,
             user_id: user.id
           }])
           .select()
@@ -606,7 +586,13 @@ export const TodoProvider = ({ children }) => {
           console.error('Supabase insert project error:', error);
           setSyncStatus('offline');
         } else if (data) {
-          setProjects(prev => prev.map(p => p.id === newProj.id ? data : p));
+          setProjects(prev => {
+            const updated = prev.map(p => p.id === newProj.id ? data : p);
+            try {
+              localStorage.setItem(`ticksy_projects_${user.id}`, JSON.stringify(updated));
+            } catch (e) {}
+            return updated;
+          });
           setSyncStatus('synced');
         }
       } catch (err) {
@@ -618,8 +604,13 @@ export const TodoProvider = ({ children }) => {
 
   // Delete Project
   const deleteProject = async (projectId) => {
-    setProjects(prev => prev.filter(p => p.id !== projectId));
-    // Also remove project from associated todos or keep them unassigned
+    setProjects(prev => {
+      const updated = prev.filter(p => p.id !== projectId);
+      try {
+        localStorage.setItem(`ticksy_projects_${user?.id || 'guest'}`, JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
     setTodos(prev => prev.map(t => t.project_id === projectId ? { ...t, project_id: null } : t));
 
     if (user && !isGuest && isSupabaseConfigured()) {
@@ -736,9 +727,10 @@ export const TodoProvider = ({ children }) => {
         toggleTodo,
         reorderTodos,
         progressHistory,
-        recordDailyProgress,
-        recalculateActualHistory,
-        seedProgressHistory: recalculateActualHistory,
+        syncProgressHistory,
+        recordDailyProgress: syncProgressHistory,
+        recalculateActualHistory: syncProgressHistory,
+        seedProgressHistory: syncProgressHistory,
         autoArchiveMode,
         setAutoArchiveMode,
         archivedTodos,

@@ -511,7 +511,11 @@ export const TodoList = ({ onOpenCreateTodo }) => {
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px', fontSize: '0.75rem', color: 'var(--text-dim)', flexWrap: 'wrap' }}>
                         {todo.due_date && <span>📅 Due {todo.due_date}</span>}
                         {todo.due_time && <span>• ⏰ {todo.due_time}</span>}
-                        {project && <span>• 📁 {project.name}</span>}
+                        {project && (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                            • <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: project.color || '#6366f1' }} /> {project.name}
+                          </span>
+                        )}
                         <span style={{ color: '#818cf8', fontWeight: 600 }}>• Archived</span>
                       </div>
                     </div>

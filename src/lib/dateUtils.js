@@ -35,6 +35,20 @@ export const getOffsetDateString = (offsetDays = 0, baseDate = new Date()) => {
 };
 
 /**
+ * Returns the single date a task is attributed to for the progress graph:
+ * Uses the task's created_at date (current date) in the user's local timezone
+ * so tasks are NEVER duplicated across both today and future due dates.
+ */
+export const getTaskDate = (todo) => {
+  if (!todo) return getLocalDateString();
+  if (todo.created_at) {
+    const localDate = getLocalDateString(todo.created_at);
+    if (localDate) return localDate;
+  }
+  return todo.due_date || getLocalDateString();
+};
+
+/**
  * Determines if a task's timeline has finished based on user's auto-archive mode.
  * Modes:
  * - 'midnight': Clears tasks from previous days when new day starts at 12:00 AM

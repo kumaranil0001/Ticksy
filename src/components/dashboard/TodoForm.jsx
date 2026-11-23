@@ -10,7 +10,8 @@ import {
   AlertCircle,
   Flame,
   CheckCircle2,
-  RefreshCw
+  RefreshCw,
+  ChevronDown
 } from 'lucide-react';
 import { useTodos } from '../../context/TodoContext';
 import { getLocalDateString } from '../../lib/dateUtils';
@@ -38,6 +39,7 @@ export const TodoForm = ({
   const [dueDate, setDueDate] = useState(() => defaultDate || selectedCalendarDate || getLocalDateString());
   const [dueTime, setDueTime] = useState('12:00');
   const [projectId, setProjectId] = useState(() => defaultProjectId || (projects[0]?.id ?? ''));
+  const [projectDropdownOpen, setProjectDropdownOpen] = useState(false);
   const [tagInput, setTagInput] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successNotice, setSuccessNotice] = useState(false);
@@ -389,23 +391,135 @@ export const TodoForm = ({
               </div>
 
               {/* Project Workspace */}
-              <div className="form-group" style={{ margin: 0 }}>
+              <div className="form-group" style={{ margin: 0, position: 'relative' }}>
                 <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '0.825rem' }}>
                   <FolderKanban size={13} style={{ color: '#a855f7' }} /> Project
                 </label>
-                <select
-                  className="form-select"
-                  value={projectId}
-                  onChange={(e) => setProjectId(e.target.value)}
-                  style={{ padding: '9px 12px', fontSize: '0.875rem' }}
-                >
-                  <option value="">📁 General</option>
-                  {projects.map((proj) => (
-                    <option key={proj.id} value={proj.id}>
-                      📁 {proj.name}
-                    </option>
-                  ))}
-                </select>
+                <div style={{ position: 'relative' }}>
+                  {(() => {
+                    const currentProj = projects.find(p => p.id === projectId) || projects[0] || { name: 'General Tasks', color: '#6366f1' };
+                    return (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => setProjectDropdownOpen(!projectDropdownOpen)}
+                          className="form-input"
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: '9px 12px',
+                            fontSize: '0.875rem',
+                            background: 'var(--bg-tertiary)',
+                            cursor: 'pointer',
+                            width: '100%',
+                            textAlign: 'left',
+                            borderRadius: 'var(--radius-md)',
+                            border: '1px solid var(--border-card)',
+                            color: 'var(--text-main)'
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                            <span
+                              style={{
+                                width: '10px',
+                                height: '10px',
+                                borderRadius: '50%',
+                                background: currentProj.color || '#6366f1',
+                                boxShadow: `0 0 8px ${currentProj.color || '#6366f1'}80`,
+                                flexShrink: 0
+                              }}
+                            />
+                            <span style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {currentProj.name}
+                            </span>
+                          </div>
+                          <ChevronDown
+                            size={14}
+                            color="var(--text-dim)"
+                            style={{
+                              transform: projectDropdownOpen ? 'rotate(180deg)' : 'none',
+                              transition: 'transform 0.2s ease',
+                              flexShrink: 0
+                            }}
+                          />
+                        </button>
+
+                        {projectDropdownOpen && (
+                          <>
+                            <div
+                              style={{ position: 'fixed', inset: 0, zIndex: 60 }}
+                              onClick={() => setProjectDropdownOpen(false)}
+                            />
+                            <div
+                              className="glass-panel"
+                              style={{
+                                position: 'absolute',
+                                top: 'calc(100% + 4px)',
+                                left: 0,
+                                right: 0,
+                                zIndex: 70,
+                                borderRadius: 'var(--radius-md)',
+                                border: '1px solid var(--border-card)',
+                                background: 'var(--bg-card)',
+                                boxShadow: '0 10px 25px rgba(0, 0, 0, 0.45)',
+                                maxHeight: '200px',
+                                overflowY: 'auto',
+                                padding: '4px'
+                              }}
+                            >
+                              {projects.map((proj) => {
+                                const isSelected = (currentProj.id) === proj.id;
+                                return (
+                                  <div
+                                    key={proj.id}
+                                    onClick={() => {
+                                      setProjectId(proj.id);
+                                      setProjectDropdownOpen(false);
+                                    }}
+                                    style={{
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'space-between',
+                                      padding: '8px 12px',
+                                      borderRadius: 'var(--radius-sm)',
+                                      background: isSelected ? 'rgba(99, 102, 241, 0.15)' : 'transparent',
+                                      cursor: 'pointer',
+                                      transition: 'background 0.15s ease'
+                                    }}
+                                    onMouseEnter={(e) => {
+                                      if (!isSelected) e.currentTarget.style.background = 'var(--bg-tertiary)';
+                                    }}
+                                    onMouseLeave={(e) => {
+                                      if (!isSelected) e.currentTarget.style.background = 'transparent';
+                                    }}
+                                  >
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                      <span
+                                        style={{
+                                          width: '8px',
+                                          height: '8px',
+                                          borderRadius: '50%',
+                                          background: proj.color || '#6366f1',
+                                          boxShadow: `0 0 6px ${proj.color || '#6366f1'}60`,
+                                          flexShrink: 0
+                                        }}
+                                      />
+                                      <span style={{ fontSize: '0.85rem', fontWeight: isSelected ? 700 : 500, color: 'var(--text-main)' }}>
+                                        {proj.name}
+                                      </span>
+                                    </div>
+                                    {isSelected && <Check size={14} color="#818cf8" />}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
               </div>
             </div>
 

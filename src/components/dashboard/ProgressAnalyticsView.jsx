@@ -14,10 +14,10 @@ import {
   RotateCcw
 } from 'lucide-react';
 import { useTodos } from '../../context/TodoContext';
-import { getLocalDateString } from '../../lib/dateUtils';
+import { getLocalDateString, getTaskDate } from '../../lib/dateUtils';
 
 export const ProgressAnalyticsView = ({ onBackToTasks, onSwitchToProfile, onSelectDateFilter }) => {
-  const { todos, stats, setSelectedCalendarDate, progressHistory, seedProgressHistory } = useTodos();
+  const { todos, archivedTodos, stats, setSelectedCalendarDate, progressHistory, seedProgressHistory } = useTodos();
   const [rangeDays, setRangeDays] = useState(7); // 7, 14, 30, or 0 (all)
   const [hoveredDay, setHoveredDay] = useState(null);
 
@@ -26,21 +26,7 @@ export const ProgressAnalyticsView = ({ onBackToTasks, onSwitchToProfile, onSele
 
   // Compute date-wise success metrics
   const dateMetrics = useMemo(() => {
-    // Collect all unique dates from todos and history
-    const todoDates = new Set();
-    todos.forEach(t => {
-      if (t.due_date) todoDates.add(t.due_date);
-      else if (t.created_at) {
-        const cDate = t.created_at.split('T')[0];
-        todoDates.add(cDate);
-      }
-    });
-
-    if (progressHistory) {
-      Object.keys(progressHistory).forEach(d => todoDates.add(d));
-    }
-
-    // Generate chronological list of dates based on rangeDays in local timezone
+    // Generate chronological list of dates based on rangeDays in local timezone (up to today)
     const dates = [];
     const count = rangeDays === 0 ? 30 : rangeDays;
 
@@ -50,40 +36,28 @@ export const ProgressAnalyticsView = ({ onBackToTasks, onSwitchToProfile, onSele
       dates.push(getLocalDateString(d));
     }
 
-    // Add any future dates that have tasks scheduled
-    todoDates.forEach(dStr => {
-      if (dStr > todayStr && !dates.includes(dStr)) {
-        dates.push(dStr);
-      }
-    });
-
     // Sort chronologically
     dates.sort();
 
-    // Map each date to metrics
+    // Map each date to strictly actual user metrics (0 if no activity)
     return dates.map(dateStr => {
-      // 1. Check if lightweight historical snapshot exists for this date
-      const historicalSnapshot = progressHistory && progressHistory[dateStr];
-
-      // 2. Check if active todos exist for this date
-      const forDate = todos.filter(t => {
-        if (t.due_date) return t.due_date === dateStr;
-        return t.created_at && t.created_at.split('T')[0] === dateStr;
-      });
+      // Find all tasks whose created/attributed date matches this dateStr
+      const allTasks = [...(todos || []), ...(archivedTodos || [])];
+      const forDate = allTasks.filter(t => getTaskDate(t) === dateStr);
 
       let total = 0;
       let completed = 0;
       let rate = 0;
 
-      // Map each date to strictly actual user metrics (0 if no activity)
+      // Map each date to strictly actual user metrics (0 if no activity or task deleted)
       if (forDate.length > 0) {
         total = forDate.length;
         completed = forDate.filter(t => t.completed).length;
         rate = Math.round((completed / total) * 100);
-      } else if (historicalSnapshot && typeof historicalSnapshot.total === 'number' && historicalSnapshot.total > 0) {
-        total = historicalSnapshot.total;
-        completed = historicalSnapshot.completed || 0;
-        rate = historicalSnapshot.rate || 0;
+      } else if (progressHistory && progressHistory[dateStr] && typeof progressHistory[dateStr].total === 'number' && progressHistory[dateStr].total > 0) {
+        total = progressHistory[dateStr].total;
+        completed = progressHistory[dateStr].completed || 0;
+        rate = progressHistory[dateStr].rate || 0;
       } else {
         total = 0;
         completed = 0;
