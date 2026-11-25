@@ -172,9 +172,46 @@ export const TodoProvider = ({ children }) => {
           }
         } catch (e) {}
 
-        setTodos(finalTodos);
+        // 4. Load archived todos for this user and immediately archive any finished-timeline tasks
+        let userArchivedList = [];
         try {
-          localStorage.setItem(`ticksy_todos_${user.id}`, JSON.stringify(finalTodos));
+          const archivedStr = localStorage.getItem(`ticksy_archived_todos_${user.id}`);
+          if (archivedStr) {
+            const parsedArchived = JSON.parse(archivedStr);
+            if (Array.isArray(parsedArchived)) userArchivedList = parsedArchived;
+          }
+        } catch (e) {}
+
+        const currentArchiveMode = localStorage.getItem('ticksy_auto_archive_mode') || 'midnight';
+        const now = new Date();
+        const archivedIdSet = new Set(userArchivedList.map(a => a.id));
+
+        const newlyFinished = [];
+        const activeFinalTodos = [];
+
+        finalTodos.forEach(t => {
+          if (archivedIdSet.has(t.id)) {
+            return; // Already archived
+          }
+          if (currentArchiveMode !== 'manual' && isTaskTimelineFinished(t, currentArchiveMode, now)) {
+            newlyFinished.push(t);
+            archivedIdSet.add(t.id);
+          } else {
+            activeFinalTodos.push(t);
+          }
+        });
+
+        if (newlyFinished.length > 0) {
+          userArchivedList = [...newlyFinished, ...userArchivedList];
+          try {
+            localStorage.setItem(`ticksy_archived_todos_${user.id}`, JSON.stringify(userArchivedList));
+          } catch (e) {}
+        }
+
+        setArchivedTodos(userArchivedList);
+        setTodos(activeFinalTodos);
+        try {
+          localStorage.setItem(`ticksy_todos_${user.id}`, JSON.stringify(activeFinalTodos));
         } catch (e) {}
       } catch (err) {
         console.error('Error fetching Supabase data:', err);
@@ -186,16 +223,49 @@ export const TodoProvider = ({ children }) => {
       // Local storage fallback strictly for Guest Demo mode
       const storedTodos = localStorage.getItem('donestack_guest_todos');
       const storedProjects = localStorage.getItem('donestack_guest_projects');
+      let guestArchived = [];
+      try {
+        const archivedStr = localStorage.getItem('ticksy_archived_todos_guest');
+        if (archivedStr) {
+          const parsedArchived = JSON.parse(archivedStr);
+          if (Array.isArray(parsedArchived)) guestArchived = parsedArchived;
+        }
+      } catch (e) {}
 
+      let guestTodos = INITIAL_TODOS;
       if (storedTodos) {
         try {
-          setTodos(JSON.parse(storedTodos));
+          guestTodos = JSON.parse(storedTodos);
         } catch (e) {
-          setTodos(INITIAL_TODOS);
+          guestTodos = INITIAL_TODOS;
         }
-      } else {
-        setTodos(INITIAL_TODOS);
       }
+
+      const currentArchiveMode = localStorage.getItem('ticksy_auto_archive_mode') || 'midnight';
+      const now = new Date();
+      const archivedIdSet = new Set(guestArchived.map(a => a.id));
+      const newlyFinished = [];
+      const activeGuestTodos = [];
+
+      guestTodos.forEach(t => {
+        if (archivedIdSet.has(t.id)) return;
+        if (currentArchiveMode !== 'manual' && isTaskTimelineFinished(t, currentArchiveMode, now)) {
+          newlyFinished.push(t);
+          archivedIdSet.add(t.id);
+        } else {
+          activeGuestTodos.push(t);
+        }
+      });
+
+      if (newlyFinished.length > 0) {
+        guestArchived = [...newlyFinished, ...guestArchived];
+        try {
+          localStorage.setItem('ticksy_archived_todos_guest', JSON.stringify(guestArchived));
+        } catch (e) {}
+      }
+
+      setArchivedTodos(guestArchived);
+      setTodos(activeGuestTodos);
 
       if (storedProjects) {
         try {
@@ -213,6 +283,7 @@ export const TodoProvider = ({ children }) => {
       // Unauthenticated state
       setTodos([]);
       setProjects([]);
+      setArchivedTodos([]);
       setSyncStatus('synced');
       setLoading(false);
     }
@@ -338,9 +409,12 @@ export const TodoProvider = ({ children }) => {
       const tasksToArchive = currentTodos.filter(t => isTaskTimelineFinished(t, autoArchiveMode, now));
       if (tasksToArchive.length === 0) return currentTodos;
 
-      // Add tasks to archived list so user can still see them under 'Archived' view
+      // Add tasks to archived list (deduplicated) so user can still see them under 'Archived' view
       setArchivedTodos(prev => {
-        const updatedArchived = [...tasksToArchive, ...prev];
+        const existingIds = new Set(prev.map(t => t.id));
+        const newItems = tasksToArchive.filter(t => !existingIds.has(t.id));
+        if (newItems.length === 0) return prev;
+        const updatedArchived = [...newItems, ...prev];
         try {
           localStorage.setItem(`ticksy_archived_todos_${user?.id || 'guest'}`, JSON.stringify(updatedArchived));
         } catch (e) {}
